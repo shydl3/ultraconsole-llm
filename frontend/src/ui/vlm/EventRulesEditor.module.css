@@ -1,0 +1,29 @@
+.editor { padding: 12px; border: 1px solid var(--line-0); border-radius: 8px; background: var(--bg-1); }
+.toolbar, .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; margin-bottom: 9px; }
+.toolbar span, .hint { color: var(--fg-2); font-size: 12px; }
+.toolbar input[type=search] { min-width: 160px; flex: 1; }
+.import { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 5px; font-size: 12px; }
+.import input { max-width: 180px; font-size: 11px; }
+.tableWrap { max-height: 480px; overflow: auto; }
+.editor table { width: 100%; border-collapse: collapse; font-size: 12px; text-align: left; }
+.editor th { white-space: nowrap; color: var(--fg-2); background: var(--panel-0); position: sticky; top: 0; z-index: 1; }
+.editor th, .editor td { padding: 9px 7px; border-bottom: 1px solid var(--line-0); vertical-align: top; }
+.editor input[type=checkbox] { accent-color: var(--accent-blue); cursor: pointer; }
+.definition { min-width: 200px; overflow-wrap: anywhere; }
+.definition p { margin: 5px 0; }
+.actions { min-width: 110px; }
+.actions button { font-size: 11px; padding: 4px 6px; }
+.poi { display: flex !important; align-items: center; gap: 6px; margin: 6px 0; white-space: nowrap; font-size: 12px; }
+.error { color: #ff9292; overflow-wrap: anywhere; white-space: pre-wrap; font-size: 12px; }
+.notice { color: var(--accent-green); font-size: 12px; }
+.dirty { color: var(--warn); font-size: 11px; }
+.dialog { width: min(660px, calc(100vw - 60px)); max-height: 85vh; overflow: auto; border: 1px solid #46515e; border-radius: 10px; background: var(--panel-0); color: var(--fg-0); padding: 22px; }
+.dialog::backdrop { background: #000a; }
+.dialog label { display: grid; gap: 5px; margin: 12px 0; }
+.dialog textarea { min-height: 85px; }
+.dialog fieldset { margin-top: 12px; border: 1px solid var(--line-0); }
+.dialog details { margin: 14px 0; }
+.dialog summary, .editor summary, .snapshot summary { cursor: pointer; }
+.importList { max-height: 200px; overflow: auto; line-height: 1.7; }
+.snapshot { padding: 12px; border: 1px solid var(--line-0); border-radius: 7px; margin: 12px 0; font-size: 12px; overflow-wrap: anywhere; }
+.snapshot article { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line-0); }

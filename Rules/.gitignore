@@ -1,0 +1,8 @@
+# 运行产物（缓存/报告/截图）不入库
+data/cache/
+data/runs/
+data/**/*.jsonl.gz
+data/**/*.jpg
+__pycache__/
+*.pyc
+.pytest_cache/

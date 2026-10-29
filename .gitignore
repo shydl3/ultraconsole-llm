@@ -1,0 +1,151 @@
+### OS / system files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+### Editors / IDE
+.idea/
+.vscode/
+!.vscode/extensions.json
+*.iml
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+.history/
+
+### Cursor / 本地 agent 产物
+.cursor/
+.qwen/tmp/
+.qwen/worktrees/
+
+### Env files / secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+# Webhook 持久化（含外部 URL，避免泄漏）
+backend/.webhook.json
+
+### Python / backend
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+sdist/
+wheels/
+pip-wheel-metadata/
+.tox/
+.nox/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.pyre/
+.pytype/
+.hypothesis/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# Virtualenvs
+.venv/
+venv/
+ENV/
+backend/.venv/
+backend/venv/
+
+# Jupyter
+.ipynb_checkpoints/
+
+### Node / frontend
+node_modules/
+dist/
+dist-ssr/
+.vite/
+.turbo/
+.next/
+.nuxt/
+.svelte-kit/
+.output/
+coverage/
+.eslintcache
+*.tsbuildinfo
+.pnpm-store/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+*.local
+
+### 缓存
+.cache/
+*.cache
+
+### 日志 / 临时文件
+*.log
+*.log.*
+logs/
+tmp/
+temp/
+*.pid
+*.port
+*.sock
+*.bak
+*.orig
+*.rej
+*~
+
+### Ultralytics / ML artifacts (DO NOT COMMIT)
+# 权重 / 引擎 / 导出的模型
+backend/models/*
+!backend/models/.gitkeep
+*.pt
+*.pth
+*.ckpt
+*.onnx
+*.engine
+*.torchscript
+*.safetensors
+*.tflite
+*.mlmodel
+*.weights
+
+# 训练输出 / 数据集 / 运行时缓存
+runs/
+datasets/
+data/
+wandb/
+mlruns/
+
+# 大体积媒体与压缩包（如需公开示例素材，用 git add -f 单独添加）
+*.mp4
+*.avi
+*.mkv
+*.mov
+*.m4v
+*.wmv
+*.flv
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.7z
+*.rar
+*.iso
+
+# 本地文件
+/安检监控视频-测试/
+检查项清单.txt

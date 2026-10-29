@@ -1,0 +1,3 @@
+# Optional offline semantic analysis. Preserve the main YOLO / Torch environment.
+av==16.0.1
+# Qwen runs in VLM_PYTHON, independently of this environment.

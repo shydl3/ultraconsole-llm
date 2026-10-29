@@ -1,0 +1,61 @@
+{
+  "pois": [
+    {
+      "id": "gate",
+      "label": "D2 gate approach",
+      "kind": "line",
+      "points": [
+        [
+          0.82,
+          0.55
+        ],
+        [
+          0.995,
+          0.55
+        ]
+      ],
+      "anchor": "bbox_bottom_center"
+    },
+    {
+      "id": "gate_zone",
+      "label": "D2 right-hand passage area",
+      "kind": "zone",
+      "points": [
+        [
+          0.88,
+          0.42
+        ],
+        [
+          0.995,
+          0.42
+        ],
+        [
+          0.995,
+          0.64
+        ],
+        [
+          0.88,
+          0.64
+        ]
+      ],
+      "anchor": "bbox_bottom_center"
+    }
+  ],
+  "events": [
+    {
+      "id": "forced_passage_unopposed",
+      "description": "是否该人员强行通过安检门且无人阻拦",
+      "criteria": [
+        "目标实际通过指定通道",
+        "能看见推挤、翻越、冲撞阻挡物或摆脱阻拦等明确的强行动作；仅经过门框、步行或走得快不满足此条件",
+        "相关时段和周围区域可见，未观察到其他人的阻拦动作"
+      ],
+      "uncertainWhen": [
+        "无法区分目标",
+        "强行通过的动作不明确",
+        "周围人员或关键时段不可见"
+      ]
+    }
+  ],
+  "poseDevice": "cuda"
+}

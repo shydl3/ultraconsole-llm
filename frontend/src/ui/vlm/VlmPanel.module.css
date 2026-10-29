@@ -1,0 +1,29 @@
+.panel { border: 1px solid var(--line-0); border-radius: 12px; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+.toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.panel textarea { width: 100%; min-height: 90px; resize: vertical; box-sizing: border-box; }
+.panel textarea, .panel select, .panel input, .panel button { background: var(--panel-2, #151e2a); color: var(--fg-0); border: 1px solid var(--line-0); border-radius: 6px; padding: 6px 8px; }
+.panel button { cursor: pointer; }
+.panel button:disabled { opacity: .45; cursor: default; }
+.panel input[type=number] { width: 70px; }
+.hint { color: var(--fg-2); font-size: 12px; }
+.error { color: #ff8585; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 180px; overflow: auto; }
+.result { border-top: 1px solid var(--line-0); padding: 10px 0; display: flex; flex-direction: column; gap: 6px; }
+.result img { width: 100%; max-width: 960px; }
+.video { width: 100%; max-height: 340px; background: #000; }
+.match { color: #ff8585; }
+.no_match { color: #75d9a4; }
+.uncertain { color: #f3ca77; }
+.parameters { border: 1px solid var(--line-0); border-radius: 8px; padding: 12px; display: grid; gap: 10px; }
+.parameters summary { cursor: pointer; }
+.parameterControls { border: 0; padding: 0; margin: 0; min-width: 0; display: grid; gap: 10px; }
+.parameterControls:disabled { opacity: .6; }
+.parameterControls legend { margin-bottom: 8px; }
+.parameterGrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; margin-top: 8px; }
+.parameterField { display: flex; flex-direction: column; gap: 5px; min-width: 0; font-size: 13px; }
+.modelPath { overflow-wrap: anywhere; font-size: 12px; }
+.panel .parameterField input[type=number] { width: 100%; box-sizing: border-box; }
+.parameterField input[aria-invalid=true] { border-color: #ff8585; }
+.parameterSnapshot { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 8px; font-size: 12px; }
+.parameterSnapshot > div { display: flex; justify-content: space-between; gap: 10px; }
+.parameterSnapshot dt { color: var(--fg-2); }
+.parameterSnapshot dd { margin: 0; }
