@@ -25,7 +25,6 @@
   <img src="https://img.shields.io/badge/Segmentation-Instance-8B5CF6?style=flat-square" alt="Segmentation" />
   <img src="https://img.shields.io/badge/Pose-COCO_17-EC4899?style=flat-square" alt="Pose" />
   <img src="https://img.shields.io/badge/ByteTrack-Tracking-10B981?style=flat-square" alt="ByteTrack" />
-  <img src="https://img.shields.io/badge/RTSP-Live_Stream-F43F5E?style=flat-square" alt="RTSP" />
   <img src="https://img.shields.io/badge/GPU-CUDA-76B900?logo=nvidia&logoColor=white&style=flat-square" alt="CUDA" />
   <img src="https://img.shields.io/badge/WebSocket-Real--Time-FFA500?style=flat-square" alt="WebSocket" />
   <img src="https://img.shields.io/badge/Webhook-Alert-9333EA?style=flat-square" alt="Webhook" />
@@ -33,7 +32,9 @@
   <img src="https://img.shields.io/badge/Heatmap-Spatial-EAB308?style=flat-square" alt="Heatmap" />
 </p>
 
-An **industrial-grade object detection visualization console** for quality inspection, surveillance, and algorithm tuning: hot-swap models, live parameter tuning, Image/Video/Webcam/RTSP/Multi-camera Wall input, OSD overlays (segmentation/pose), ByteTrack tracking + line/zone counting events, spatial heatmap, GPU/CPU/latency monitoring, Webhook alerting, config import/export, WebSocket auto-reconnect.
+An **industrial-grade object detection visualization console** for quality inspection, surveillance, and algorithm tuning: hot-swap models, live parameter tuning, local video analysis input, OSD overlays (segmentation/pose), ByteTrack tracking + line/zone counting events, spatial heatmap, GPU/CPU/latency monitoring, Webhook alerting, config import/export.
+
+The home page opens **Video** directly. Image, RTSP, Webcam, Wall, the offline Rules page, and their dedicated APIs have been removed. `Rules/` retains the VLM implementation and shared pose/geometry code used by Video semantic analysis; existing semantic-analysis data paths remain compatible.
 
 ## Screenshot
 
@@ -43,13 +44,12 @@ An **industrial-grade object detection visualization console** for quality inspe
 
 - **Industrial Dark Theme + Neo-Skeuomorphism**: Designed for long monitoring sessions; critical status at a glance.
 - **Zero-blocking real-time redraw**: OSD overlays use Canvas, keeping high-frequency graphics out of React render; ResizeObserver attached only once.
-- **Background inference**: REST/Webcam inference uses `asyncio.to_thread`; RTSP runs in worker threads. YOLO calls are serialized, so concurrent inputs share inference capacity.
-- **Live and recorded inputs**: Webcam uses a latest-frame queue and send backpressure; RTSP limits sampling and outbound queues. Video processes scheduled samples sequentially, taking longer when inference is slow.
+- **Background inference**: Video frame inference uses `asyncio.to_thread`; YOLO calls are serialized.
+- **Sequential video analysis**: Video processes scheduled samples sequentially, taking longer when inference is slow.
 - **Observability closed-loop**: HUD telemetry + system resource panel (CPU/GPU/VRAM/temp/power) + inference latency P50/P95/P99 + structured event stream + CSV export.
 - **External alerting**: Built-in DingTalk / WeCom / Feishu / Slack / Generic JSON webhook formats with (kind, ref) cooldown deduplication.
-- **Multi-camera Wall**: 1×1 / 2×1 / 2×2 / 3×2 / 3×3 grid for simultaneous RTSP streams, single WS multiplexed by streamId.
 - **Object Tracking + Events**: Built-in ByteTrack; draw "counting lines" / "counting zones" for in/out or enter/leave statistics; stable trackId colors + trail visualization.
-- **Live-stream reconnect**: Webcam/RTSP/Wall use exponential backoff and heartbeats; RTSP reconnects restart the stream. Video disconnects end the run and preserve partial results.
+- **Partial reports on disconnect**: Video disconnects end the run and preserve partial results.
 - **Portable config**: One-click JSON export (params/engine/OSD/ROI/lines-zones/alerts/webhook); drag JSON to another machine to apply instantly.
 - **Replaceable inference kernel**: Default `pip install ultralytics`; supports swapping to your custom ultralytics fork.
 
@@ -61,15 +61,11 @@ An **industrial-grade object detection visualization console** for quality inspe
 - **Engine**: CPU/CUDA toggle; same device = no-op, different device = warmup only (no weight reload)
 - **NMS**: Conf/IoU sliders with live adjustment; frontend 200ms debounce writeback
 - **Class Filter**: Multi-select label filtering
-- **Tracking**: Enable ByteTrack (Webcam / RTSP / Wall; automatic for Video analysis); bboxes auto-tagged with `#trackId`
+- **Tracking**: Video analysis automatically enables ByteTrack; bboxes carry `#trackId`
 
 ### Input Sources
 
-- **Image**: Upload or **drag-and-drop** for instant inference; threshold changes trigger re-run (with pending queue)
 - **Video**: Sequential sampling of local videos (configurable FPS), **drag & drop**, isolated ByteTrack tracking, line/zone counting, video timestamps, and analysis CSV export.
-- **Webcam**: Browser camera real-time inference (WS frame push; toBlob async encoding + backpressure)
-- **RTSP**: Enter address to connect (backend pulls stream → JPEG → WS)
-- **Wall**: 1×1 / 2×1 / 2×2 / 3×2 / 3×3 multi-RTSP grid, each cell with independent OSD + bbox count HUD
 
 ### Visualization & Efficiency
 
@@ -78,7 +74,6 @@ An **industrial-grade object detection visualization console** for quality inspe
 - **Telemetry HUD**: FPS / Latency (Pre/Infer/Post)
 - **ROI**: Polygon + Rectangle draw modes; "show only ROI targets" (display filtering); touch-screen supported. Counting Line / Zone rules define counting geometry separately
 - **Counting Line / Zone**: Draw lines/zones on canvas for automatic in/out or enter/leave counting
-- **BadCase**: One-click zip download `zip(frame.jpg + config.json + pred.json)`
 
 ### Monitoring & Data
 
@@ -120,7 +115,7 @@ Recorded-video analysis does not trigger Alert Engine or Webhook notifications. 
 ```
 backend/                    # FastAPI + Ultralytics inference service
 ├── app/
-│   ├── main.py             # REST + two WS channels (/ws/infer, /ws/stream multi streamId)
+│   ├── main.py             # REST + Video WS (/ws/infer)
 │   ├── config.py          # Environment settings / resource limits
 │   ├── security.py        # REST / WS auth and URL validation
 │   ├── infer_runtime.py    # YOLO load/infer/track, masks + keypoints extraction
@@ -140,7 +135,7 @@ frontend/                   # React 19 + Vite + TypeScript + zustand
     ├── ui/
     │   ├── control/        # ControlPanel: Model/Engine/NMS/Class/Tracking
     │   ├── viewer/
-    │   │   ├── tabs/       # Image/Video/Webcam/Rtsp/Wall
+    │   │   ├── tabs/       # Video
     │   │   └── widgets/    # CanvasOverlay / VideoCanvasOverlay / RoiOverlay /
     │   │                   # EventEditOverlay / TelemetryHUD
     │   ├── monitor/        # SystemStatsCard / WebhookCard / ConfigCard /
@@ -215,10 +210,8 @@ Settings are read from the backend process environment. To use a file, run `cp .
 - `ULTRA_API_TOKEN` protects every REST endpoint except health and all WebSockets; build the frontend with the same `VITE_ULTRA_API_TOKEN`
 - `ULTRA_CORS_ORIGINS` is a comma-separated Origin allowlist; it defaults to local development origins
 - `ULTRA_MAX_UPLOAD_BYTES` / `ULTRA_MAX_IMAGE_PIXELS` limit uploads and decoded image size
-- `ULTRA_MAX_RTSP_STREAMS` / `ULTRA_MAX_RTSP_FPS` cap concurrent streams and per-stream FPS
 - `ULTRA_MAX_WS_BASE64_CHARS` caps encoded WebSocket frame length (default 16 MiB characters)
 - `ULTRA_MAX_TRACKER_CONTEXTS` caps independent tracking contexts (default 10); each adds model RAM/VRAM usage
-- `ULTRA_ALLOWED_RTSP_HOSTS` optionally restricts RTSP targets to exact hosts
 - `ULTRA_ALLOW_PRIVATE_WEBHOOKS` defaults to `false`, blocking loopback, private and link-local webhook targets
 
 When enabling authentication, set the matching `VITE_ULTRA_API_TOKEN` in `frontend/.env.local`, then restart the dev server or rebuild. No backend token means credential checks are disabled. REST clients can send `Authorization: Bearer <token>`; browser WebSockets use the `ultra-token.<base64url-token>` subprotocol.
@@ -236,8 +229,6 @@ The token is compiled into the browser bundle, so treat it as a deployment-level
 | `POST` | `/api/models/select` | Load model (`{modelId}`, path whitelist + extension validation) |
 | `POST` | `/api/engine/select` | Switch CPU/CUDA (`{device}`, same device = no-op) |
 | `GET` `/POST` | `/api/params` | Get/update `{conf, iou, classFilter, track}` |
-| `POST` | `/api/infer/image` | Single image inference (`multipart/form-data: file`) |
-| `POST` | `/api/infer/frame` | Legacy single-frame inference (same as image entry); Video analysis uses `/ws/infer` |
 | `GET` | `/api/system/stats` | CPU/GPU/Mem + inference latency percentiles |
 | `GET` `/POST` | `/api/webhook` | Get/save webhook config |
 | `POST` | `/api/webhook/test` | Connectivity test |
@@ -246,12 +237,7 @@ The token is compiled into the browser bundle, so treat it as a deployment-level
 
 ### WebSocket
 
-- `/ws/infer` — Webcam / Video frame push channel: client sends `{type:'frame', imageJpegBase64, ...}`, server returns `{type:'pred'|'log'}`; accepts `{type:'ping'}` → `{type:'pong'}`
-- `/ws/stream` — RTSP multi-channel:
-  - Client sends `{type:'rtsp.start', streamId, url, fps, conf, iou, classFilter, track}`
-  - `{type:'rtsp.stop', streamId}` stops one stream / `{type:'rtsp.stopAll'}` stops all
-  - Frames use a binary packet: `big-endian uint32 JSON-header byte length + JSON metadata + JPEG`; predictions and logs remain JSON
-  - Also supports `ping/pong`
+- `/ws/infer` — Video frame push channel: client sends `{type:'frame', imageJpegBase64, ...}`, server returns `{type:'pred'|'log'}`; accepts `{type:'ping'}` → `{type:'pong'}`
 
 ## Using a Custom ultralytics Fork
 
@@ -284,107 +270,43 @@ Change `ultralytics` in `backend/requirements.txt` to:
    - Format: "DingTalk", minimum level `WARN`, cooldown 30s
    - Event types: check `alert`, `line.cross`, `zone.enter`
    - Click "Send Test" → group receives `ℹ️ [INFO] Webhook test`
-2. Enable Tracking + draw a counting line + start Webcam/RTSP
-3. When a target crosses the line, the group receives in real-time:
-   ```
-   ⚠️ [WARN] Line L1 in
-   person#7
-   ref: line_a8f1
-   - trackId: 7
-   - cls: person
-   - direction: in
-   ts: 2026-05-07 18:42:11
-   ```
+Recorded-video counting events are saved in reports and do not send live Webhook notifications. Use Send Test to check notification connectivity.
 
 ## Architecture
 
 ```mermaid
 flowchart TB
-  subgraph PresentationLayer["Presentation Layer"]
-    UI["Web Console UI<br/>React / Vite<br/>Control + Viewer + Monitor"]
-    BrowserMedia["Browser Media Inputs<br/>File + Drag&amp;Drop<br/>Webcam getUserMedia"]
-  end
-
-  subgraph BusinessLogicLayer["Business Logic Layer"]
-    ApiGateway["API Gateway<br/>FastAPI REST endpoints"]
-    WsInfer["WS /ws/infer<br/>Webcam / Video frames + ping/pong"]
-    WsStream["WS /ws/stream<br/>Multi streamId routing<br/>rtsp start / stop"]
-    Rules["Frontend Logic<br/>ReconnectingWs + ByteTrack events<br/>Alert + Webhook + ROI + OSD"]
-  end
-
-  subgraph InferenceEngineLayer["Inference Engine Layer"]
-    ModelRuntime["Ultralytics Runtime YOLO<br/>Model hot-swap<br/>predict + track + masks + keypoints"]
-    VideoDecode["Media Decode/Encode<br/>RTSP decode OpenCV<br/>JPEG encode/decode"]
-    SysMon["System Monitor<br/>psutil CPU/Mem + pynvml GPU<br/>Inference latency ring buffer"]
-  end
-
-  subgraph DataLayer["Data Layer"]
-    ModelRepo["Model Repository<br/>backend/models"]
-    LogStore["Structured Log Store<br/>In-memory ring buffer<br/>CSV export"]
-    WebhookStore["Webhook Config<br/>backend/.webhook.json"]
-    Artifacts["Artifacts Local<br/>BadCase zip + Config JSON + Video CSV"]
-  end
-
-  subgraph External["External Systems"]
-    Channels["Webhook Channels<br/>DingTalk / WeCom / Feishu / Slack / Generic"]
-  end
-
-  BrowserMedia --> UI
-
-  UI -->|REST| ApiGateway
-  UI -->|WS Webcam / Video| WsInfer
-  UI -->|WS RTSP| WsStream
-  UI -->|UI rules| Rules
-
-  ApiGateway --> ModelRuntime
-  WsInfer --> ModelRuntime
-  WsStream --> VideoDecode
-  VideoDecode --> ModelRuntime
-
-  ModelRepo --> ModelRuntime
-  ApiGateway --> LogStore
-  ApiGateway --> SysMon
-  ApiGateway --> WebhookStore
-  WsInfer --> LogStore
-  WsStream --> LogStore
-
-  Rules --> Artifacts
-  Rules -->|POST notify| ApiGateway
-  ApiGateway -->|httpx POST| Channels
-
-  LogStore -->|export CSV| UI
-  SysMon -->|stats poll| UI
-  WsInfer -->|preds telemetry| UI
-  WsStream -->|frames preds logs| UI
+  UI["Web Console: Control + Video + Monitor"]
+  Media["Local video files"] --> UI
+  UI -->|REST| API["FastAPI: models, parameters, stats, library, webhook"]
+  UI -->|Video frames: /ws/infer| Runtime["Ultralytics inference + isolated tracking"]
+  API --> Runtime
+  UI -->|POI analysis| VLM["Background pose + Qwen semantic analysis"]
+  VLM --> Storage["Results, evidence, source videos and caches"]
+  API --> Storage
+  API -->|Notifications| Webhook["Webhook channels"]
+  Runtime -->|Predictions + telemetry| UI
 ```
 
 ## FAQ
 
-### 1) Why does RTSP use WS to push JPEG frames?
-
-V1 prioritizes "usability and easy integration": the frontend only needs to fill in an address to get a video stream. For lower bandwidth/latency needs, it can be upgraded to HLS/WebRTC + separate WS for preds.
-
-### 2) Will model/weight files be committed to the open-source repo?
+### 1) Will model/weight files be committed to the open-source repo?
 
 No: the repo's `.gitignore` already excludes `backend/models/**/*.pt|onnx|engine` and other large file types, as well as `backend/.webhook.json` (contains external URLs).
 
-### 3) Will trackId collide across streams in multi-camera Wall?
-
-The runtime assigns separate model instances by tracking key: Webcam/Video use connection keys, while RTSP/Wall use `streamId`. Streams within a Wall do not share tracking state, but numeric IDs may repeat across streams and are not cross-camera identities. Different clients sharing a backend should avoid reusing RTSP `streamId` values. Independent instances increase RAM/VRAM usage.
-
-### 4) GPU monitoring panel shows "NVML unavailable"?
+### 2) GPU monitoring panel shows "NVML unavailable"?
 
 This means `nvidia-ml-py` is not installed or the machine has no NVIDIA driver. CPU/Mem still works (via `psutil`); inference is not affected.
 
-### 5) Webhook dispatch rejected by DingTalk?
+### 3) Webhook dispatch rejected by DingTalk?
 
 DingTalk custom robots with "signature security" or "IP whitelist" will fail. Start with "custom keyword" mode (simplest), setting keywords like "alert" / "UltraConsole".
 
-### 6) Does WebSocket auto-reconnect clear ByteTrack state?
+### 4) What happens when Video analysis disconnects?
 
-Tracking state is recreated. Webcam disconnects release the connection context, and RTSP stops release the stream context. Resuming a stream does not guarantee ID continuity. Video does not automatically reconnect and continue counting; export partial results or start a new run from the beginning.
+The run ends and partial results remain available for export. Starting again creates a new tracking context and analyzes the video from the beginning.
 
-### 7) Does the exported config JSON contain webhook URLs in plaintext?
+### 5) Does the exported config JSON contain webhook URLs in plaintext?
 
 Yes. The exported file contains sensitive URLs without masking in the UI. For stricter security, manually remove the webhook field before export, or add an "export without webhook" toggle later.
 
@@ -407,16 +329,16 @@ GitHub Actions runs backend/frontend tests, static checks and the frontend build
 ## Contributing
 
 - Issues/PRs welcome:
-  - Bug: include reproduction steps, logs, and input source info (Image/Video/Webcam/RTSP/Wall)
+  - Bug: include reproduction steps, logs, and video format and analysis settings
   - Feature: suggest opening an Issue first to discuss interface and interaction
 - Roadmap (✅ = shipped):
-  - ✅ Multi-camera Wall, ByteTrack + Events, Segmentation/Pose, GPU/CPU HUD, Latency percentiles, Webhook, WS reconnect, Drag-and-drop, Config import/export
+  - ✅ Video analysis, ByteTrack + Events, Segmentation/Pose, GPU/CPU HUD, Latency percentiles, Webhook, Drag-and-drop, Config import/export
   - ✅ Chinese/English i18n, spatial heatmaps, Video sampling and counting reports, optional Token auth, security/resource limits, tests and CI
   - ⏳ Model A/B comparison, SQLite persistence, Screenshot export, Plugin system
 
 ### Records and video library
 
-Click **Records & videos ↗** in the console header to open a separate management window, or visit `/library` directly (currently `http://localhost:5100/library`). Browse saved semantic analyses, offline rule analyses and converted videos with category filters, name/original filename/ID search, pagination, video previews and downloads, result/evidence viewing, renaming and bulk deletion.
+Click **Records & videos ↗** in the console header to open a separate management window, or visit `/library` directly (currently `http://localhost:5100/library`). Browse saved semantic analyses and converted videos with category filters, name/original filename/ID search, pagination, video previews and downloads, result/evidence viewing, renaming and bulk deletion.
 
 Renaming persists a display name while retaining original filenames, run IDs and video cache keys. Deletion requires confirmation, and running analyses cannot be deleted. Removing an analysis deletes that run's results and evidence while retaining shared uploaded sources. Removing a converted video deletes its MP4, metadata and legacy preview hard links; reuploading its original requires conversion again. Live session logs are not part of this persisted library.
 
@@ -427,3 +349,9 @@ Use **Video → POI video semantic analysis → Event definitions** to add, edit
 Each rule supports trigger types, pre/post sampling windows, conditions and uncertainty conditions. POI bindings are specific to the current analysis, not the reusable template. Missing bindings block analysis. Up to 30 rules can be enabled per analysis; the library supports 1000 rules. Unsaved changes are committed by **Save rules and start analysis**.
 
 Definitions persist in `Rules/data/vlm/event-rules.json` under `VLM_DATA_ROOT`. Revision checks prevent stale windows from overwriting other edits; conflicts retain local drafts for export or reload. Batch writes are atomic. Runs retain the selected rule names, versions and effective definitions, independent of subsequent edits or deletions. Snapshots are available in task history and the separate records window.
+
+### Video descriptions and judgment rationale
+
+New tasks save and display separate Qwen video-content descriptions and judgment rationale. Descriptions cover the target’s visible sequence of actions, event-related details and visibility gaps; rationale relates those observations to event conditions, timing and missing evidence. Full text is available in console results, segment evidence and library details. These remain model-generated observations for human review, not verified facts.
+
+The default output limit is 1024 tokens and the maximum is 2048. Lower browser preferences are preserved, with a button to apply the recommended limit. Historical records retain their original text; rerun an analysis to generate the new descriptions.

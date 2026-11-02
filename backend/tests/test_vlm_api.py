@@ -43,7 +43,8 @@ def test_upload_start_results_auth_and_range(client, tmp_path, monkeypatch, loca
         assert jobs.read_json(folder / 'request.json')['modelPath'] == str(local_vlm_models[1])
         state = json.loads((folder / "status.json").read_text())
         write_json(folder / "status.json", {**state, "state": "completed"})
-        (folder / "results.jsonl").write_text(json.dumps({"trackId": 7, "decision": "uncertain", "eventDefinitionId": "e"}) + "\n")
+        (folder / "results.jsonl").write_text(json.dumps({"trackId": 7, "decision": "uncertain", "eventDefinitionId": "e",
+                                                        "videoDescription": "目标走向门框，随后被旁人遮挡。", "reason": "后续动作看不清。"}) + "\n")
     monkeypatch.setattr(jobs, "launch", fake_launch)
     payload = {"videoId": vid, "pois": [{"id": "gate", "kind": "line", "points": [[.2, .2], [.8, .8]]}],
                "events": [{"id": "e", "description": "test"}], "modelPath": str(local_vlm_models[1])}
@@ -51,12 +52,24 @@ def test_upload_start_results_auth_and_range(client, tmp_path, monkeypatch, loca
     assert response.status_code == 200, response.text
     run = response.json()["runId"]
     assert client.get(f"/api/vlm/runs/{run}").json()["state"] == "completed"
-    assert client.get(f"/api/vlm/runs/{run}/results?trackId=7").json()["total"] == 1
+    results = client.get(f"/api/vlm/runs/{run}/results?trackId=7").json()
+    assert results["total"] == 1
+    assert results["items"][0]["videoDescription"] == "目标走向门框，随后被旁人遮挡。"
     assert client.get(f"/api/vlm/runs/{run}/results?trackId=8").json()["total"] == 0
     assert client.get(f"/api/vlm/videos/{vid}/source", headers={"range": "bytes=0-99"}).status_code == 206
     assert TestClient(main.app).get("/api/vlm/runs").status_code == 401
     assert client.get(f"/api/vlm/runs/{run}/artifacts/..%2frequest.json").status_code in (400, 404)
     assert client.post(f"/api/vlm/runs/{run}/cancel").json()["state"] == "completed"
+
+
+def test_description_output_budget_is_exposed_and_validated(client):
+    contract = client.get('/api/vlm/parameters').json()
+    assert contract['defaults']['maxNewTokens'] == 1024
+    assert contract['fields']['maxNewTokens']['maximum'] == 2048
+    assert jobs.AnalysisParameters(maxNewTokens=512).maxNewTokens == 512  # Existing preferences remain valid.
+    assert jobs.AnalysisParameters(maxNewTokens=2048).maxNewTokens == 2048
+    with pytest.raises(ValueError):
+        jobs.AnalysisParameters(maxNewTokens=2049)
 
 
 def test_invalid_model_is_rejected_before_worker_or_run_creation(client, tmp_path, monkeypatch, local_vlm_models):

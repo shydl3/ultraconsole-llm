@@ -12,10 +12,10 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, field_validator
 
-from . import rules_api, video_api, vlm_api, vlm_jobs
+from . import video_api, vlm_api, vlm_jobs
 
 router = APIRouter(prefix="/api/library", tags=["library"])
-Kind = Literal["vlm", "rules", "video"]
+Kind = Literal["vlm", "video"]
 
 
 class Rename(BaseModel):
@@ -39,7 +39,7 @@ def _read(path: Path):
 
 
 def _root(kind: Kind):
-    return {"vlm": vlm_api.DATA_ROOT / "runs", "rules": rules_api.RUNS_ROOT, "video": video_api.CACHE_ROOT}[kind]
+    return {"vlm": vlm_api.DATA_ROOT / "runs", "video": video_api.CACHE_ROOT}[kind]
 
 
 def _path(kind: Kind, identifier: str):
@@ -85,29 +85,23 @@ def _entry(kind: Kind, path: Path):
         active = state not in vlm_jobs.TERMINAL
         count = status.get("summary", {}).get("resultCount")
         date = _timestamp(status.get("startedAt"), date)
-    else:
-        report = _read(path / "run.json")
-        state = "completed" if report.get("finishedAt") else "running"
-        active = state == "running"
-        count = report.get("totals", {}).get("events", len(report.get("events", [])))
-        date = _timestamp(report.get("startedAt"), date)
     return {"kind": kind, "id": identifier, "name": meta.get("displayName") or original,
             "originalName": original, "state": state, "createdAt": date,
             "sizeBytes": size, "resultCount": count, "active": active}
 
 
 @router.get("")
-def list_items(kind: Literal["all", "vlm", "rules", "video"] = "all", q: str = Query(default="", max_length=200),
+def list_items(kind: Literal["all", "vlm", "video"] = "all", q: str = Query(default="", max_length=200),
                offset: int = Query(default=0, ge=0), limit: int = Query(default=30, ge=1, le=100)):
-    items, counts = [], {"vlm": 0, "rules": 0, "video": 0}
-    for category in ("vlm", "rules", "video"):
+    items, counts = [], {"vlm": 0, "video": 0}
+    for category in ("vlm", "video"):
         root = _root(category)
         if not root.exists():
             continue
         for candidate in root.iterdir():
             if category == "video" and candidate.suffix != ".mp4":
                 continue
-            if category != "video" and not (candidate / ("status.json" if category == "vlm" else "run.json")).is_file():
+            if category != "video" and not (candidate / "status.json").is_file():
                 continue
             try:
                 path = _path(category, candidate.stem if category == "video" else candidate.name)
@@ -139,11 +133,6 @@ def detail(kind: Kind, identifier: str, offset: int = Query(default=0, ge=0), li
         videos = [{"id": video_id, "name": item["originalName"], "url": f"/api/vlm/videos/{video_id}/source"}] if video_id else []
         return {"item": item, "metadata": status, "results": page["items"], "total": page["total"], "videos": videos,
                 "ruleSnapshot": vlm_api.run_rules(identifier)}
-    report = _read(path / "run.json")
-    events = rules_api.get_events(identifier, videoId=None, ruleId=None, review=None)
-    videos = [{"id": video["videoId"], "name": Path(video.get("sourcePath", video["videoId"])).name,
-               "url": f"/api/rules/runs/{identifier}/videos/{video['videoId']}/source"} for video in report.get("videos", [])]
-    return {"item": item, "metadata": report, "results": events[offset:offset + limit], "total": len(events), "videos": videos}
 
 
 @router.get("/video/{identifier}/source")
@@ -159,7 +148,7 @@ def saved_video(identifier: str, download: bool = False):
 @router.patch("/{kind}/{identifier}")
 def rename(kind: Kind, identifier: str, request: Rename):
     # Labels are stored separately from worker status and content-addressed filenames.
-    with vlm_jobs.launch_lock, rules_api._jobs_lock, video_api.lock:
+    with vlm_jobs.launch_lock, video_api.lock:
         path = _path(kind, identifier)
         metadata = _metadata(kind, path)
         if metadata.is_symlink():
@@ -172,7 +161,7 @@ def rename(kind: Kind, identifier: str, request: Rename):
 
 @router.delete("/{kind}/{identifier}")
 def delete(kind: Kind, identifier: str):
-    with vlm_jobs.launch_lock, rules_api._jobs_lock, video_api.lock:
+    with vlm_jobs.launch_lock, video_api.lock:
         path = _path(kind, identifier)
         if _entry(kind, path)["active"]:
             raise HTTPException(409, "Running analyses cannot be deleted; stop the task first")
@@ -190,6 +179,4 @@ def delete(kind: Kind, identifier: str):
         else:
             # Run-local evidence is removed; shared uploaded sources and tracking caches remain.
             shutil.rmtree(path)
-            if kind == "rules":
-                (path.parent / f"{identifier}.log").unlink(missing_ok=True)
         return {"ok": True}

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { parameterDraft, parseParameters, savedParameters, type ParameterContract } from './vlmParameters'
 
 const contract: ParameterContract = {
-  defaults: { modelPath: '/models/Qwen3-VL-2B-Instruct', poseDevice: 'cuda', dryRun: false, poseFps: 10, conf: .25, iou: .5, stableSeconds: .2, hysteresisPx: 6, maxGapSeconds: 1, sampleFps: 2, maxFrames: 32, maxPixels: 196608, maxNewTokens: 512 },
+  defaults: { modelPath: '/models/Qwen3-VL-2B-Instruct', poseDevice: 'cuda', dryRun: false, poseFps: 10, conf: .25, iou: .5, stableSeconds: .2, hysteresisPx: 6, maxGapSeconds: 1, sampleFps: 2, maxFrames: 32, maxPixels: 196608, maxNewTokens: 1024 },
   models: ['2B', '4B'].map(size => ({ path: `/models/Qwen3-VL-${size}-Instruct`, name: size, available: true, error: null })),
   fields: {
     poseFps: { type: 'number', minimum: 1, maximum: 30 },
@@ -14,7 +14,7 @@ const contract: ParameterContract = {
     sampleFps: { type: 'number', minimum: .5, maximum: 8 },
     maxFrames: { type: 'integer', minimum: 4, maximum: 64, multipleOf: 2 },
     maxPixels: { type: 'integer', minimum: 65536, maximum: 786432 },
-    maxNewTokens: { type: 'integer', minimum: 128, maximum: 1024 },
+    maxNewTokens: { type: 'integer', minimum: 128, maximum: 2048 },
   },
 }
 
@@ -36,6 +36,8 @@ describe('VLM parameters', () => {
     const edited = { ...parameterDraft(contract.defaults), sampleFps: '4', maxFrames: '48', poseFps: '15', dryRun: true }
     expect(parseParameters(edited, contract).value).toEqual({ ...contract.defaults, sampleFps: 4, maxFrames: 48, poseFps: 15, dryRun: true })
     expect(parseParameters(parameterDraft(contract.defaults), contract).invalid).toEqual([])
+    expect(savedParameters(JSON.stringify({ maxNewTokens: 512 }), contract).maxNewTokens).toBe(512)
+    expect(parseParameters({ ...parameterDraft(contract.defaults), maxNewTokens: '2048' }, contract).value?.maxNewTokens).toBe(2048)
   })
   it.each([{ maxFrames: '5' }, { maxFrames: '4.5' }, { maxFrames: '' }, { conf: '0' }, { iou: '1' }, { sampleFps: 'NaN' }, { maxPixels: 'Infinity' }, { poseFps: '31' }])('blocks invalid input %o', changes => {
     expect(parseParameters({ ...parameterDraft(contract.defaults), ...changes }, contract).value).toBeNull()

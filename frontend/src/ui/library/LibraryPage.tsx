@@ -97,7 +97,7 @@ export function LibraryPage() {
       </div>
     </header>
     <div className={styles.tabs} role="group" aria-label={t('library.filter')}>
-      {(['all', 'vlm', 'rules', 'video'] as const).map(tab => <button key={tab} aria-pressed={kind === tab} className={kind === tab ? styles.currentTab : ''} onClick={() => filter(tab)}>
+      {(['all', 'vlm', 'video'] as const).map(tab => <button key={tab} aria-pressed={kind === tab} className={kind === tab ? styles.currentTab : ''} onClick={() => filter(tab)}>
         <span>{t(`library.${tab}`)}</span><strong>{list ? tab === 'all' ? Object.values(list.counts).reduce((a, b) => a + b, 0) : list.counts[tab] : '—'}</strong>
       </button>)}
     </div>

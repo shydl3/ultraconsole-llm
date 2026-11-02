@@ -141,7 +141,7 @@ class UltralyticsRuntime:
         """
         单帧推理。
         - track=True 时改用 model.track(persist=True) 启用 ByteTrack。
-        - tracker_key：每条流（webcam/rtsp1/rtsp2…）使用独立 predictor/tracker，
+        - tracker_key：每次 Video 分析连接使用独立 predictor/tracker，
           防止 Ultralytics persist 状态在多路输入之间串号。
         """
         with self._lock:

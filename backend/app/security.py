@@ -49,15 +49,6 @@ async def require_ws_auth(ws: WebSocket) -> tuple[bool, str | None]:
     return False, None
 
 
-def validate_rtsp_url(url: str) -> str:
-    parsed = urlsplit(url)
-    if parsed.scheme.lower() not in {"rtsp", "rtsps"} or not parsed.hostname:
-        raise ValueError("RTSP URL must use rtsp:// or rtsps:// and include a host")
-    if settings.allowed_rtsp_hosts and parsed.hostname not in settings.allowed_rtsp_hosts:
-        raise ValueError("RTSP host is not in ULTRA_ALLOWED_RTSP_HOSTS")
-    return url
-
-
 def _is_private_address(host: str) -> bool:
     try:
         addresses = {ipaddress.ip_address(host)}

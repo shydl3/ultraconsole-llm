@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 from PIL import Image
 
 
-def test_webcam_inference_drops_intermediate_frames(monkeypatch) -> None:
+def test_video_inference_drops_intermediate_frames(monkeypatch) -> None:
     started = threading.Event()
     release = threading.Event()
     calls = 0

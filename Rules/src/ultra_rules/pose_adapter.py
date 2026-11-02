@@ -1,11 +1,4 @@
-"""Pose 推理适配：独立 YOLO 实例 + ByteTrack，每个文件独立跟踪上下文。
-
-不复用 `backend.app.infer_runtime.UltralyticsRuntime`，原因：
-1. 该运行时一次仅允许一个全局模型，且 tracker 上下文与在线 WS/RTSP 共享；
-2. 离线批处理需要"每文件独立 persist 状态，文件结束即释放"，直接实例化
-   YOLO 更简单、更安全，也不受全局 predict_lock 影响；
-3. 权重文件与运行时保持一致（`backend/models/yolo11m-pose.pt`）。
-"""
+"""Video semantic analysis pose adapter with an independent tracker per file."""
 from __future__ import annotations
 
 import hashlib
@@ -126,21 +119,3 @@ def _sha1(path: str, chunk: int = 1 << 20) -> str:
                 break
             h.update(b)
     return h.hexdigest()[:16]
-
-
-def resolve_model_path(model_id: str, candidates: list[str] | None = None) -> str:
-    """在 backend/models 与常见位置解析模型文件。"""
-    if os.path.isabs(model_id) and os.path.isfile(model_id):
-        return model_id
-    here = os.path.dirname(os.path.abspath(__file__))
-    roots = [
-        os.path.abspath(os.path.join(here, "..", "..", "..", "backend", "models")),
-        os.path.abspath(os.path.join(here, "..", "..", "..", "..", "backend", "models")),
-    ]
-    for extra in candidates or []:
-        roots.append(extra)
-    for r in roots:
-        p = os.path.join(r, model_id)
-        if os.path.isfile(p):
-            return p
-    raise FileNotFoundError(f"Model not found: {model_id} (searched {roots})")

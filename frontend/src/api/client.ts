@@ -1,6 +1,5 @@
 import type {
-  DeviceType, ModelInfo, NotifyRequest, NotifyResult, Params, PredResponse,
-  RulesEvent, RulesRunDetail, RulesRunListItem, RulesRunStatus, RulesVideoReport,
+  DeviceType, ModelInfo, NotifyRequest, NotifyResult, Params,
   SystemStats, WebhookConfig,
 } from './contracts'
 
@@ -64,27 +63,6 @@ export async function apiUpdateParams(p: Params) {
   return json<Params>(res)
 }
 
-export async function apiInferImage(file: File) {
-  const fd = new FormData()
-  fd.append('file', file)
-  const res = await apiFetch('/api/infer/image', {
-    method: 'POST',
-    body: fd,
-  })
-  return json<PredResponse>(res)
-}
-
-export async function apiInferFrame(file: Blob) {
-  const fd = new FormData()
-  // 后端接口名为 file
-  fd.append('file', new File([file], 'frame.jpg', { type: 'image/jpeg' }))
-  const res = await apiFetch('/api/infer/frame', {
-    method: 'POST',
-    body: fd,
-  })
-  return json<PredResponse>(res)
-}
-
 export async function apiExportLogsCsv() {
   const res = await apiFetch('/api/logs/export.csv')
   if (!res.ok) throw new Error(`HTTP ${res.status}`)
@@ -129,11 +107,6 @@ export function wsInferUrl() {
   return `${proto}//${location.host}/ws/infer`
 }
 
-export function wsStreamUrl() {
-  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
-  return `${proto}//${location.host}/ws/stream`
-}
-
 export function wsAuthProtocols(): string[] | undefined {
   if (!API_TOKEN) return undefined
   const bytes = new TextEncoder().encode(API_TOKEN)
@@ -141,55 +114,6 @@ export function wsAuthProtocols(): string[] | undefined {
   for (const byte of bytes) binary += String.fromCharCode(byte)
   const encoded = btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '')
   return [`ultra-token.${encoded}`]
-}
-
-// ---- 离线规则（Rules/）----
-
-export async function apiRulesListRuns(limit = 50) {
-  const res = await apiFetch(`/api/rules/runs?limit=${limit}`)
-  return json<RulesRunListItem[]>(res)
-}
-
-export async function apiRulesGetRun(runId: string) {
-  const res = await apiFetch(`/api/rules/runs/${encodeURIComponent(runId)}`)
-  return json<RulesRunDetail>(res)
-}
-
-export async function apiRulesGetEvents(runId: string, opts: { videoId?: string; ruleId?: string } = {}) {
-  const qs = new URLSearchParams()
-  if (opts.videoId) qs.set('videoId', opts.videoId)
-  if (opts.ruleId) qs.set('ruleId', opts.ruleId)
-  const q = qs.toString()
-  const res = await apiFetch(`/api/rules/runs/${encodeURIComponent(runId)}/events${q ? `?${q}` : ''}`)
-  return json<RulesEvent[]>(res)
-}
-
-export async function apiRulesGetVideos(runId: string) {
-  const res = await apiFetch(`/api/rules/runs/${encodeURIComponent(runId)}/videos`)
-  return json<RulesVideoReport[]>(res)
-}
-
-export async function apiRulesStartRun(opts: { inputPath?: string; configPath?: string; device?: string } = {}) {
-  const qs = new URLSearchParams()
-  if (opts.inputPath) qs.set('input_path', opts.inputPath)
-  if (opts.configPath) qs.set('config_path', opts.configPath)
-  if (opts.device) qs.set('device', opts.device)
-  const q = qs.toString()
-  const res = await apiFetch(`/api/rules/runs/start${q ? `?${q}` : ''}`, { method: 'POST' })
-  return json<{ ok: boolean; runId: string; pid: number; log: string }>(res)
-}
-
-export async function apiRulesRunStatus(runId: string) {
-  const res = await apiFetch(`/api/rules/runs/${encodeURIComponent(runId)}/status`)
-  return json<RulesRunStatus>(res)
-}
-
-export function rulesFrameUrl(runId: string, relPath: string) {
-  return `/api/rules/runs/${encodeURIComponent(runId)}/frames/${relPath}`
-}
-
-export function rulesSourceUrl(runId: string, videoId: string) {
-  return `/api/rules/runs/${encodeURIComponent(runId)}/videos/${encodeURIComponent(videoId)}/source`
 }
 
 export async function apiVlm<T>(path: string, init: RequestInit = {}): Promise<T> {

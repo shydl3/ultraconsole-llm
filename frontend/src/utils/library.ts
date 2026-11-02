@@ -1,8 +1,7 @@
 import type { RuleSnapshot } from './eventRules'
-import type { RulesEvent } from '../api/contracts'
 import type { VlmResult } from './vlm'
 
-export type LibraryKind = 'vlm' | 'rules' | 'video'
+export type LibraryKind = 'vlm' | 'video'
 export type LibraryItem = {
   kind: LibraryKind; id: string; name: string; originalName: string; state: string
   createdAt: number; sizeBytes: number | null; resultCount: number | null; active: boolean
@@ -12,7 +11,7 @@ export type LibraryList = {
 }
 export type LibraryDetail = {
   ruleSnapshot?: RuleSnapshot
-  item: LibraryItem; metadata: Record<string, unknown>; results: (VlmResult | RulesEvent)[]; total: number
+  item: LibraryItem; metadata: Record<string, unknown>; results: VlmResult[]; total: number
   videos: { id: string; name: string; url: string }[]
 }
 export const libraryKey = (item: LibraryItem) => `${item.kind}/${item.id}`

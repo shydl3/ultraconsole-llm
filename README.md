@@ -25,7 +25,6 @@
   <img src="https://img.shields.io/badge/Segmentation-Instance-8B5CF6?style=flat-square" alt="Segmentation" />
   <img src="https://img.shields.io/badge/Pose-COCO_17-EC4899?style=flat-square" alt="Pose" />
   <img src="https://img.shields.io/badge/ByteTrack-Tracking-10B981?style=flat-square" alt="ByteTrack" />
-  <img src="https://img.shields.io/badge/RTSP-Live_Stream-F43F5E?style=flat-square" alt="RTSP" />
   <img src="https://img.shields.io/badge/GPU-CUDA-76B900?logo=nvidia&logoColor=white&style=flat-square" alt="CUDA" />
   <img src="https://img.shields.io/badge/WebSocket-Real--Time-FFA500?style=flat-square" alt="WebSocket" />
   <img src="https://img.shields.io/badge/Webhook-Alert-9333EA?style=flat-square" alt="Webhook" />
@@ -33,7 +32,9 @@
   <img src="https://img.shields.io/badge/Heatmap-Spatial-EAB308?style=flat-square" alt="Heatmap" />
 </p>
 
-面向工业质检 / 安防监控 / 算法调优场景的 **通用目标检测可视化控制台**：模型热切换、参数热更新、Image/Video/Webcam/RTSP/多路监控墙输入、OSD 叠加（含分割/姿态）、ByteTrack 跟踪 + 越线/区域计数事件、空间热力图、GPU/CPU/延迟监控、Webhook 告警出系统、配置一键导入导出、WebSocket 自动重连。
+面向工业质检 / 安防监控 / 算法调优场景的 **通用目标检测可视化控制台**：模型热切换、参数热更新、本地视频分析输入、OSD 叠加（含分割/姿态）、ByteTrack 跟踪 + 越线/区域计数事件、空间热力图、GPU/CPU/延迟监控、Webhook 告警出系统、配置一键导入导出。
+
+主页直接显示 **Video**。Image、RTSP、Webcam、Wall、离线 Rules 页面及其专属 API 已移除。`Rules/` 目录仅保留 Video 语义分析所需的 VLM、姿态观测和几何代码；现有语义分析数据路径保持兼容。
 
 ## 页面预览（Screenshot）
 
@@ -43,13 +44,12 @@
 
 - **工业暗黑风 + Neo-Skeuomorphism**：适合长时间盯盘，关键状态一眼可读。
 - **零阻塞实时重绘**：OSD 叠加基于 Canvas，不把高频图形更新塞进 React render；ResizeObserver 只挂一次。
-- **后台推理**：REST/Webcam 推理通过 `asyncio.to_thread` 执行，RTSP 使用工作线程；YOLO 调用串行化，多路输入共享推理算力。
-- **实时流与录像分别处理**：Webcam 使用最新帧队列和发送背压，RTSP 限制采样率与发送队列；Video 顺序处理设定的采样点，处理较慢时延长分析时间。
+- **后台推理**：视频帧推理通过 `asyncio.to_thread` 执行，YOLO 调用串行化。
+- **顺序视频分析**：Video 顺序处理设定的采样点，处理较慢时延长分析时间。
 - **可观测闭环**：HUD 遥测 + 系统资源面板（CPU/GPU/显存/温度/功耗）+ 推理延迟 P50/P95/P99 + 结构化事件流 + CSV 导出。
 - **告警出系统**：内置钉钉 / 企微 / 飞书 / Slack / 通用 JSON 五种 Webhook 格式，按 (kind, ref) 维度冷却去重。
-- **多路监控墙**：1×1 / 2×1 / 2×2 / 3×2 / 3×3 网格同屏多路 RTSP，单 WS 多路复用 streamId。
 - **目标跟踪 + 事件**：内置 ByteTrack，画"计数线"/"计数区"自动统计 in/out / enter/leave，trackId 稳定颜色 + 轨迹尾迹。
-- **实时流重连**：Webcam/RTSP/Wall 支持 WebSocket 指数退避重连与心跳，RTSP 重连后重新拉流；Video 断线会结束本次分析并保留部分报告。
+- **断线保留报告**：Video 断线会结束本次分析并保留部分报告。
 - **配置可迁移**：一键导出 JSON（参数/引擎/OSD/ROI/计数线区/告警/Webhook 全套），到另一台机拖拽即生效。
 - **可替换推理内核**：默认 `pip install ultralytics`，支持切换到你"魔改版 ultralytics"。
 - **中英双语**：界面支持中文/英文一键切换（顶栏 `中/EN` 按钮），默认中文；README 提供中英双语版本。
@@ -62,15 +62,11 @@
 - **Engine**：CPU/CUDA 切换；同设备直接 no-op，不同设备只 warmup（不重 load 权重）
 - **NMS**：Conf/IoU 滑块实时调整，前端 200ms 防抖回写
 - **Class Filter**：多选标签过滤类别
-- **Tracking**：勾选启用 ByteTrack（Webcam / RTSP / Wall；Video 分析自动启用），bbox 自动带 `#trackId`
+- **Tracking**：Video 分析自动启用 ByteTrack，bbox 自动带 `#trackId`
 
 ### 输入源
 
-- **Image**：上传或**拖拽**即推理；阈值变化自动重跑（带 pending 队列）
 - **Video**：本地视频顺序采样分析（可设 FPS），支持**拖拽**、独立 ByteTrack 跟踪、越线/区域计数、视频时间与分析 CSV 导出。
-- **Webcam**：浏览器摄像头实时推理（WS 推帧；toBlob 异步编码 + 背压控制）
-- **RTSP**：填地址即连（后端拉流 → JPEG → WS）
-- **Wall**：1×1 / 2×1 / 2×2 / 3×2 / 3×3 多路 RTSP 网格，每格独立 OSD + bbox 计数 HUD
 
 ### 可视化与效率
 
@@ -79,7 +75,6 @@
 - **Telemetry HUD**：FPS / 耗时（Pre/Infer/Post）
 - **ROI**：矩形/多边形绘制 +"仅显示 ROI 内目标"（前端显示过滤），支持触屏；计数范围由 Counting Line / Zone 单独定义
 - **Counting Line / Zone**：在画面上画线/画区，自动统计跨线/进出区
-- **BadCase**：📷 一键打包下载 `zip(frame.jpg + config.json + pred.json)`
 
 ### 监控与数据沉淀
 
@@ -121,7 +116,7 @@
 ```
 backend/                    # FastAPI + Ultralytics 推理服务
 ├── app/
-│   ├── main.py             # REST + 两路 WS（/ws/infer, /ws/stream 多路 streamId）
+│   ├── main.py             # REST + Video WS（/ws/infer）
 │   ├── config.py          # 环境变量与资源限制
 │   ├── security.py        # REST / WS 鉴权与 URL 校验
 │   ├── infer_runtime.py    # YOLO 加载/推理/跟踪，masks + keypoints 提取
@@ -141,7 +136,7 @@ frontend/                   # React 19 + Vite + TypeScript + zustand
     ├── ui/
     │   ├── control/        # ControlPanel: Model/Engine/NMS/Class/Tracking
     │   ├── viewer/
-    │   │   ├── tabs/       # Image/Video/Webcam/Rtsp/Wall
+    │   │   ├── tabs/       # Video
     │   │   └── widgets/    # CanvasOverlay / VideoCanvasOverlay / RoiOverlay /
     │   │                   # EventEditOverlay / TelemetryHUD
     │   ├── monitor/        # SystemStatsCard / WebhookCard / ConfigCard /
@@ -216,10 +211,8 @@ npm run dev
 - `ULTRA_API_TOKEN`：设置后保护除健康检查外的 REST API 和全部 WebSocket；前端构建时设置同值的 `VITE_ULTRA_API_TOKEN`
 - `ULTRA_CORS_ORIGINS`：允许的前端 Origin，逗号分隔；默认仅本机开发地址
 - `ULTRA_MAX_UPLOAD_BYTES` / `ULTRA_MAX_IMAGE_PIXELS`：上传文件与解码后像素上限
-- `ULTRA_MAX_RTSP_STREAMS` / `ULTRA_MAX_RTSP_FPS`：并发流数与单流 FPS 上限
 - `ULTRA_MAX_WS_BASE64_CHARS`：WebSocket 帧编码长度上限，默认 16 MiB 字符
 - `ULTRA_MAX_TRACKER_CONTEXTS`：独立跟踪上下文上限，默认 10；每个上下文会增加模型内存/显存占用
-- `ULTRA_ALLOWED_RTSP_HOSTS`：可选的 RTSP 主机白名单
 - `ULTRA_ALLOW_PRIVATE_WEBHOOKS`：默认 `false`，防止 Webhook 访问本机、内网和链路本地地址
 
 启用鉴权时，在 `frontend/.env.local` 设置相同的 `VITE_ULTRA_API_TOKEN`，然后重启开发服务器或重新构建。未设置后端 Token 时不校验凭证。REST 客户端可使用 `Authorization: Bearer <token>`；浏览器 WebSocket 通过 `ultra-token.<base64url-token>` 子协议携带凭证。
@@ -237,8 +230,6 @@ API Token 会被编译进浏览器端资源，因此它是部署级共享访问�
 | `POST` | `/api/models/select` | 加载模型（`{modelId}`，做路径白名单 + 后缀校验） |
 | `POST` | `/api/engine/select` | 切换 CPU/CUDA（`{device}`，同设备 no-op） |
 | `GET` `/POST` | `/api/params` | 获取/更新 `{conf, iou, classFilter, track}` |
-| `POST` | `/api/infer/image` | 单图推理（`multipart/form-data: file`） |
-| `POST` | `/api/infer/frame` | 兼容旧客户端的单帧推理（同 image 入口）；Video 分析使用 `/ws/infer` |
 | `GET` | `/api/system/stats` | CPU/GPU/Mem + 推理延迟分位 |
 | `GET` `/POST` | `/api/webhook` | 取/存 webhook 配置 |
 | `POST` | `/api/webhook/test` | 联通性测试 |
@@ -247,12 +238,7 @@ API Token 会被编译进浏览器端资源，因此它是部署级共享访问�
 
 ### WebSocket
 
-- `/ws/infer` — Webcam / Video 推帧通道：客户端发 `{type:'frame', imageJpegBase64, ...}`，服务端回 `{type:'pred'|'log'}`；接受 `{type:'ping'}` → `{type:'pong'}`
-- `/ws/stream` — RTSP 多路通道：
-  - 客户端发 `{type:'rtsp.start', streamId, url, fps, conf, iou, classFilter, track}`
-  - `{type:'rtsp.stop', streamId}` 单路停 / `{type:'rtsp.stopAll'}` 全停
-  - 视频帧使用二进制包返回：`大端 uint32 JSON头字节数 + JSON元数据 + JPEG`，预测和日志仍为 JSON
-  - 同样支持 `ping/pong`
+- `/ws/infer` — Video 推帧通道：客户端发 `{type:'frame', imageJpegBase64, ...}`，服务端回 `{type:'pred'|'log'}`；接受 `{type:'ping'}` → `{type:'pong'}`
 
 ## 使用"魔改版 ultralytics"的方式
 
@@ -285,107 +271,43 @@ uvicorn app.main:app --reload --port 8001
    - 格式选"钉钉"，最低等级 `WARN`，冷却 30 秒
    - 事件类型勾上 `alert`、`line.cross`、`zone.enter`
    - 点"发送测试" → 群里收到 `ℹ️ [INFO] Webhook 测试`
-2. 启用 Tracking + 画一条计数线 + 启动 Webcam/RTSP
-3. 有目标穿线时群里实时收到：
-   ```
-   ⚠️ [WARN] 计数线 L1 in
-   person#7
-   ref: line_a8f1
-   - trackId: 7
-   - cls: person
-   - direction: in
-   ts: 2026-05-07 18:42:11
-   ```
+Video 录像分析的计数事件仅进入报告，不派发实时 Webhook。可通过“发送测试”检查通知连通性。
 
 ## 架构图
 
 ```mermaid
 flowchart TB
-  subgraph PresentationLayer["表现层 Presentation Layer"]
-    UI["Web Console UI<br/>React / Vite<br/>Control + Viewer + Monitor"]
-    BrowserMedia["Browser Media Inputs<br/>File + Drag&amp;Drop<br/>Webcam getUserMedia"]
-  end
-
-  subgraph BusinessLogicLayer["业务逻辑层 Business Logic Layer"]
-    ApiGateway["API Gateway<br/>FastAPI REST endpoints"]
-    WsInfer["WS /ws/infer<br/>Webcam / Video frames + ping/pong"]
-    WsStream["WS /ws/stream<br/>多路 streamId 路由<br/>rtsp start / stop"]
-    Rules["Frontend Logic<br/>ReconnectingWs + ByteTrack 事件<br/>Alert + Webhook + ROI + OSD"]
-  end
-
-  subgraph InferenceEngineLayer["推理引擎层 Inference Engine Layer"]
-    ModelRuntime["Ultralytics Runtime YOLO<br/>Model hot-swap<br/>predict + track + masks + keypoints"]
-    VideoDecode["Media Decode/Encode<br/>RTSP decode OpenCV<br/>JPEG encode/decode"]
-    SysMon["System Monitor<br/>psutil CPU/Mem + pynvml GPU<br/>推理延迟 ring buffer"]
-  end
-
-  subgraph DataLayer["数据层 Data Layer"]
-    ModelRepo["Model Repository<br/>backend/models"]
-    LogStore["Structured Log Store<br/>In-memory ring buffer<br/>CSV export"]
-    WebhookStore["Webhook Config<br/>backend/.webhook.json"]
-    Artifacts["Artifacts Local<br/>BadCase zip + Config JSON + Video CSV"]
-  end
-
-  subgraph External["外部系统"]
-    Channels["Webhook Channels<br/>DingTalk / WeCom / Feishu / Slack / Generic"]
-  end
-
-  BrowserMedia --> UI
-
-  UI -->|REST| ApiGateway
-  UI -->|WS Webcam / Video| WsInfer
-  UI -->|WS RTSP| WsStream
-  UI -->|UI rules| Rules
-
-  ApiGateway --> ModelRuntime
-  WsInfer --> ModelRuntime
-  WsStream --> VideoDecode
-  VideoDecode --> ModelRuntime
-
-  ModelRepo --> ModelRuntime
-  ApiGateway --> LogStore
-  ApiGateway --> SysMon
-  ApiGateway --> WebhookStore
-  WsInfer --> LogStore
-  WsStream --> LogStore
-
-  Rules --> Artifacts
-  Rules -->|POST notify| ApiGateway
-  ApiGateway -->|httpx POST| Channels
-
-  LogStore -->|export CSV| UI
-  SysMon -->|stats poll| UI
-  WsInfer -->|preds telemetry| UI
-  WsStream -->|frames preds logs| UI
+  UI["Web Console: Control + Video + Monitor"]
+  Media["Local video files"] --> UI
+  UI -->|REST| API["FastAPI: models, parameters, stats, library, webhook"]
+  UI -->|Video frames: /ws/infer| Runtime["Ultralytics inference + isolated tracking"]
+  API --> Runtime
+  UI -->|POI analysis| VLM["Background pose + Qwen semantic analysis"]
+  VLM --> Storage["Results, evidence, source videos and caches"]
+  API --> Storage
+  API -->|Notifications| Webhook["Webhook channels"]
+  Runtime -->|Predictions + telemetry| UI
 ```
 
 ## FAQ
 
-### 1）为什么 RTSP 用 WS 推 JPEG 帧？
-
-V1 优先"可用与易集成"：前端只需填地址即可出画面；后续如需更省带宽/更低延迟，可升级为 HLS/WebRTC + 单独 WS 下发 preds。
-
-### 2）模型/权重文件会不会被提交到开源仓库？
+### 1）模型/权重文件会不会被提交到开源仓库？
 
 不会：仓库已在 `.gitignore` 忽略 `backend/models/**/*.pt|onnx|engine` 等大文件类型，以及 `backend/.webhook.json`（含外部 URL 不入仓库）。
 
-### 3）多路 Wall 同屏跟踪时 trackId 会不会跨路串号？
-
-当前实现按跟踪 key 分配独立模型实例：Webcam/Video 按连接隔离，RTSP/Wall 按 `streamId` 隔离。同一监控墙的各路目标不会共用跟踪状态，但不同路的数字 ID 可以相同，不能当作跨摄像头身份。不同客户端连接同一后端时，应避免复用相同 RTSP `streamId`。独立实例会增加内存/显存占用。
-
-### 4）GPU 监控面板显示"NVML 不可用"？
+### 2）GPU 监控面板显示"NVML 不可用"？
 
 说明 `nvidia-ml-py` 未安装或当前机器无 NVIDIA 驱动。CPU/Mem 仍可显示（依赖 `psutil`）；不影响推理。
 
-### 5）Webhook 派发被钉钉拒绝？
+### 3）Webhook 派发被钉钉拒绝？
 
 钉钉自定义机器人若开了"加签安全"或"IP 白名单"会失败。建议先用"自定义关键词"模式（最简单），把关键词设成"告警"/"UltraConsole" 等。
 
-### 6）WebSocket 自动重连会清空 ByteTrack 跟踪状态吗？
+### 4）Video 分析断线后如何处理？
 
-会重新建立跟踪状态。Webcam 断开后释放连接的跟踪上下文，RTSP 停止后也会释放对应上下文；重连恢复视频流时，不保证 ID 连续。Video 不自动重连续算，断线后可导出部分报告，重新开始会从头分析。
+断线会结束当前分析，可导出部分报告。重新开始会建立新的跟踪上下文，并从视频起点分析。
 
-### 7）配置导出的 JSON 里有 webhook URL 明文吗？
+### 5）配置导出的 JSON 里有 webhook URL 明文吗？
 
 有。导出文件含敏感 URL，UI 上没遮挡。如需更严格可在导出前手工删除 webhook 字段，或后续加"导出时屏蔽 webhook"开关。
 
@@ -408,7 +330,7 @@ GitHub Actions 在 push 和 pull request 时运行上述前后端测试、静态
 ## 贡献指南
 
 - 欢迎提 Issue/PR：
-  - Bug：请带复现步骤、日志与输入源信息（Image/Video/Webcam/RTSP/Wall）
+  - Bug：请带复现步骤、日志与视频格式与分析参数
   - Feature：建议先开 Issue 讨论接口与交互
 - 路线图（已落地以 ✅ 标）：
   - ✅ 多路监控墙、ByteTrack + 事件、分割/姿态、GPU/CPU HUD、延迟分位、Webhook、WS 重连、拖拽上传、配置导入导出
@@ -417,7 +339,7 @@ GitHub Actions 在 push 和 pull request 时运行上述前后端测试、静态
 
 ### 记录与视频管理
 
-点击控制台顶部 **记录与视频管理 ↗**，在独立窗口打开管理页，也可直接访问 `/library`（当前服务为 `http://localhost:5100/library`）。统一列出已保存的语义分析、离线规则分析和转换视频，支持分类、名称／原文件名／ID 搜索、分页、视频预览与下载、分析结果和证据查看、重命名及勾选批量删除。
+点击控制台顶部 **记录与视频管理 ↗**，在独立窗口打开管理页，也可直接访问 `/library`（当前服务为 `http://localhost:5100/library`）。统一列出已保存的语义分析和转换视频，支持分类、名称／原文件名／ID 搜索、分页、视频预览与下载、分析结果和证据查看、重命名及勾选批量删除。
 
 重命名修改持久保存的显示名称，保留原文件名、运行 ID 和视频缓存标识。删除需要在页面确认；运行中的分析不能删除。删除分析会清理该次运行的结果和证据，保留共享上传原视频；删除转换视频会清理 MP4、索引及旧预览硬链接，再次上传原片时重新转换。管理页覆盖磁盘上保存的记录，不包含当前会话的实时日志。
 
@@ -428,3 +350,9 @@ GitHub Actions 在 push 和 pull request 时运行上述前后端测试、静态
 每条规则可配置跨线／进入区域／离开区域／起始在区域内、事件前后采样时间、判断条件及无法判断的情况。当前视频的 POI 绑定单独配置，不固化到通用规则库；失效的绑定会阻止启动。一次最多启用 30 条，库中最多保存 1000 条。存在草稿时，启动按钮显示“保存规则并开始分析”。
 
 规则保存在 `Rules/data/vlm/event-rules.json`（跟随 `VLM_DATA_ROOT`）。多窗口修改采用版本检查，冲突时保留当前草稿，可先导出再重新加载。批量保存和删除全部校验后原子写入。分析启动时保存规则名称、版本和实际定义快照；后续修改或删除规则不影响正在运行的任务和历史分析。任务记录及独立管理窗口的详情中均可查看当时使用的规则。
+
+### 视频内容描述与判断依据
+
+新任务会分别保存并展示 Qwen 的“视频内容描述”和“判断依据”：描述目标动作的先后过程、事件相关现象及看不清的部分；依据对应事件条件，说明可见证据、时间窗口和缺失信息。控制台结果、分段证据和记录管理详情均可查看完整文本。详细描述仍是模型输出，便于人工复核，不代表已验证的事实。
+
+默认最大输出为 1024 tokens，上限可设为 2048。浏览器已有的较低设置会保留，页面提供“使用推荐输出上限”按钮。旧记录保留原文，需重新运行才能获得新的视频描述。

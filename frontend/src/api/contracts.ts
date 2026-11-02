@@ -66,7 +66,6 @@ export type AlertConfig = { enabled: boolean; targetClass?: string; minFrames: n
 export type RoiPoint = { x: number; y: number }
 export type RoiMode = 'rect' | 'poly'
 export type RoiState = { enabled: boolean; polygon: RoiPoint[]; closed: boolean; applyFilter: boolean; mode: RoiMode }
-export type ConnState = 'idle' | 'connecting' | 'open' | 'closed' | 'error'
 
 export type WebhookFormat = 'generic' | 'dingtalk' | 'wecom' | 'feishu' | 'slack'
 export type NotifyKind = 'alert' | 'line.cross' | 'zone.enter' | 'zone.leave' | 'test'
@@ -89,85 +88,3 @@ export type NotifyRequest = {
   ref?: string
   fields?: Record<string, unknown>
 }
-
-export type WsPredMessage = { type: 'pred'; streamId?: string } & PredResponse
-export type WsLogMessage = { type: 'log'; streamId?: string } & LogEntry
-export type WsFrameMessage = {
-  type: 'frame'
-  streamId?: string
-  frameId: string
-  ts: number
-  imageJpegBase64: string
-  width: number
-  height: number
-}
-
-// ---- 离线规则（Rules/）----
-export type RulesRunListItem = {
-  runId: string
-  startedAt: number
-  finishedAt: number
-  modelId?: string
-  device?: string
-  configHash?: string
-  totals?: { videos?: number; events?: number; byRule?: Record<string, number>; durationSec?: number }
-  videoCount: number
-  eventCount: number
-}
-
-export type RulesVideoReport = {
-  videoId: string
-  sourcePath: string
-  cameraProfileId?: string | null
-  width: number
-  height: number
-  fpsNominal: number
-  frameCount: number
-  durationSec: number
-  sampledFrames: number
-  analyzableSec: number
-  timeSource: string
-  eventCount: number
-  ruleCoverage?: Record<string, number>
-  warnings?: string[]
-  status: 'ok' | 'partial' | 'failed'
-  error?: string | null
-}
-
-export type RulesEvent = {
-  eventId: string
-  ruleId: string
-  ruleVersion?: string
-  runId: string
-  videoId: string
-  cameraProfileId?: string | null
-  subjectIds: string[]
-  zoneId?: string | null
-  startSec: number
-  triggerSec?: number | null
-  endSec: number
-  status: string
-  evidenceLevel: string
-  reasons: string[]
-  metrics?: Record<string, unknown>
-  quality?: Record<string, unknown>
-  clipFlags?: Record<string, boolean>
-  keyframes?: { tSec: number; path: string; phase?: string }[]
-  review?: 'unreviewed' | 'confirmed' | 'rejected'
-}
-
-export type RulesRunDetail = {
-  runId: string
-  startedAt: number
-  finishedAt: number
-  configPath?: string | null
-  configHash?: string
-  modelId?: string
-  modelHash?: string | null
-  device?: string
-  videos: RulesVideoReport[]
-  events: RulesEvent[]
-  totals?: Record<string, unknown>
-}
-
-export type RulesRunStatus = { runId: string; running: boolean; done: boolean; logTail: string }

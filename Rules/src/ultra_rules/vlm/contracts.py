@@ -71,7 +71,7 @@ class AnalysisParameters(StrictModel):
     sampleFps: float = Field(default=2, ge=0.5, le=8)
     maxFrames: int = Field(default=32, ge=4, le=64, multiple_of=2)
     maxPixels: int = Field(default=196608, ge=65536, le=786432)
-    maxNewTokens: int = Field(default=512, ge=128, le=1024)
+    maxNewTokens: int = Field(default=1024, ge=128, le=2048)
     dryRun: bool = False
 
 
@@ -108,7 +108,9 @@ class ModelAnswer(StrictModel):
     decision: Literal["match", "no_match", "uncertain"]
     confidence: float | None = Field(default=None, ge=0, le=1)
     reason: str = Field(min_length=1, max_length=1500)
-    # Optional legacy fields; compact answers only require the core three fields.
+    # Optional for historical answers; new inference requires a visible-content description.
+    videoDescription: str | None = Field(default=None, min_length=1, max_length=3000)
+    # Optional legacy fields.
     evidence: list[Evidence] = Field(default_factory=list, max_length=8)
     conditions: list[ConditionCheck] = Field(default_factory=list, max_length=10)
     _parse_warnings: list[str] = PrivateAttr(default_factory=list)

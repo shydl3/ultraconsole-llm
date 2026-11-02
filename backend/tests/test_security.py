@@ -3,14 +3,8 @@ from dataclasses import replace
 import app.main as main
 import app.security as security
 import pytest
-from app.security import validate_rtsp_url, validate_webhook_url
+from app.security import validate_webhook_url
 from fastapi.testclient import TestClient
-
-
-def test_rtsp_protocol_is_restricted() -> None:
-    assert validate_rtsp_url("rtsp://camera.local/live") == "rtsp://camera.local/live"
-    with pytest.raises(ValueError):
-        validate_rtsp_url("file:///etc/passwd")
 
 
 @pytest.mark.parametrize("url", ["http://127.0.0.1/hook", "http://169.254.169.254/latest", "http://[::1]/hook"])

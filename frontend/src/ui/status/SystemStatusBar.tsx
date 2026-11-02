@@ -12,7 +12,6 @@ export function SystemStatusBar() {
   const t = useT()
   const modelId = useConsoleStore((s) => s.currentModelId)
   const device = useConsoleStore((s) => s.engine.device)
-  const conns = useConsoleStore((s) => s.connections)
   const fps = useConsoleStore((s) => s.telemetrySummary.fps)
   const locale = useLocaleStore((s) => s.locale)
   const setLocale = useLocaleStore((s) => s.setLocale)
@@ -34,14 +33,6 @@ export function SystemStatusBar() {
       </div>
 
       <div className={styles.right}>
-        <span className={styles.item}>
-          WS(Infer) <span className={[styles.state, styles[conns.inferWs]].join(' ')}>{conns.inferWs}</span>
-        </span>
-        <span className={styles.sep} />
-        <span className={styles.item}>
-          WS(RTSP) <span className={[styles.state, styles[conns.rtspWs]].join(' ')}>{conns.rtspWs}</span>
-        </span>
-        <span className={styles.sep} />
         <span className={styles.item}>
           FPS <span className={styles.fps}>{fmtFps(fps)}</span>
         </span>

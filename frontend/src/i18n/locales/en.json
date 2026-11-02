@@ -16,16 +16,9 @@
     "selectModelHint": "Select model (backend/models)",
     "warming": "Warming up…",
     "classHint": "Class labels appear after selecting a model.",
-    "enableTracking": "Enable ByteTrack (Webcam / RTSP / Wall; automatic for Video)",
+    "enableTracking": "Video analysis enables ByteTrack automatically",
     "trackingHint": "Enables trackId on bboxes, trails & counting lines/zones.",
     "drawLineHint": "Draw lines/zones via right-click menu or the buttons next to ROI tool."
-  },
-  "image": {
-    "selectImage": "Select Image",
-    "clear": "Clear",
-    "dragHint": "Drag image here, or click \"Select Image\".",
-    "dropHint": "Release to load image",
-    "inferring": "Inferring…"
   },
   "video": {
     "selectVideo": "Select Video",
@@ -50,22 +43,6 @@
     "preparingConvert": "Creating an H.264 preview (video only). Long recordings may take several minutes:",
     "prepareError": "Could not prepare video preview:",
     "prepareCancelled": "Preview cancelled. Select the video again to retry."
-  },
-  "webcam": {
-    "startPreview": "Preview",
-    "stopPreview": "Stop Preview",
-    "stopInfer": "Stop",
-    "connecting": "Connecting…"
-  },
-  "rtsp": {
-    "start": "Start",
-    "emptyHint": "Enter RTSP address and click \"Start\"."
-  },
-  "wall": {
-    "grid": "Grid",
-    "startAll": "Start All",
-    "stopAll": "Stop All",
-    "emptyHint": "Enter RTSP address and click Start"
   },
   "monitor": {
     "reset": "Reset",
@@ -159,7 +136,9 @@
     "match": "Match",
     "no_match": "No match",
     "uncertain": "Insufficient evidence",
-    "originalDecision": "Original model judgment"
+    "originalDecision": "Original model judgment",
+    "videoDescription": "Video content description",
+    "judgmentReason": "Judgment rationale"
   },
   "vlmParameters": {
     "modelPath": "Semantic analysis model",
@@ -187,7 +166,7 @@
     "poseFps": "Pose detection rate (frames/s)",
     "poseFpsHint": "Controls tracking and POI detection, and the observation frames available to Qwen.",
     "maxNewTokens": "Maximum output tokens",
-    "maxNewTokensHint": "A limit, not a target length. Generation stops on complete JSON; low limits can truncate answers.",
+    "maxNewTokensHint": "Use at least 1024 tokens for detailed video descriptions and rationale. Generation stops on complete JSON; low limits can truncate answers.",
     "poseDevice": "Pose detection device",
     "deviceHint": "Default CUDA. Only affects pose detection; Qwen continues to use the GPU.",
     "conf": "Person detection confidence threshold",
@@ -205,7 +184,9 @@
     "windowHint": "Set pre/post context in each rule under Edit → Advanced conditions. Defaults: 4 seconds before, 6 seconds after.",
     "snapshot": "View parameters used for this task",
     "yes": "Yes",
-    "no": "No"
+    "no": "No",
+    "lowOutputBudget": "Your saved output limit is below the recommendation for detailed descriptions and may truncate answers.",
+    "useOutputBudget": "Use recommended output limit"
   },
   "library": {
     "title": "Records & videos",
@@ -215,7 +196,6 @@
     "filter": "Record categories",
     "all": "All records",
     "vlm": "Semantic analyses",
-    "rules": "Rule analyses",
     "video": "Converted videos",
     "search": "Search name, original filename or record ID",
     "selected": "{{count}} selected",
@@ -239,7 +219,7 @@
     "loading": "Loading…",
     "empty": "No records found",
     "storage": "Converted video directory:",
-    "retainHint": "Completed videos are retained. This library covers saved semantic and offline rule analyses, excluding live session logs.",
+    "retainHint": "Completed conversions are retained. Manage saved semantic analyses and converted videos here.",
     "renameHint": "Change the display name while preserving the original filename, record ID and video cache identity.",
     "cancel": "Cancel",
     "working": "Working…",

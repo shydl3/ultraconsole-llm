@@ -6,7 +6,7 @@ from pydantic import ValidationError
 
 from .contracts import ConditionCheck, Evidence, ModelAnswer
 
-POSTPROCESS_VERSION = "model-decision-v3"
+POSTPROCESS_VERSION = "model-decision-v4"
 
 
 def _unique_keys(pairs):
@@ -41,8 +41,8 @@ def parse_answer(text: str, start: float, end: float, criteria_count: int, *, ch
     if not isinstance(data, dict):
         raise ValueError("Model answer must be a JSON object")
     # Validate the decision independently of optional legacy evidence/conditions.
-    answer = ModelAnswer.model_validate({key: data[key] for key in ("decision", "confidence", "reason") if key in data})
-    auxiliary_issue = bool(set(data) - {"decision", "confidence", "reason", "evidence", "conditions"})
+    answer = ModelAnswer.model_validate({key: data[key] for key in ("decision", "confidence", "reason", "videoDescription") if key in data})
+    auxiliary_issue = bool(set(data) - {"decision", "confidence", "reason", "videoDescription", "evidence", "conditions"})
     if "evidence" in data:
         raw_evidence = data["evidence"]
         if not isinstance(raw_evidence, list):
@@ -117,7 +117,8 @@ def apply_answer(part: dict, answer: ModelAnswer):
     decision, warnings = verified_decision(answer, quality)
     warnings = list(dict.fromkeys(warnings + answer._parse_warnings))
     part.update(decision=decision, modelDecision=answer.decision, modelDecisionConfidence=answer.confidence,
-                reason=answer.reason, evidence=evidence, modelEvidence=[e.model_dump() for e in answer.evidence],
+                reason=answer.reason, videoDescription=answer.videoDescription,
+                evidence=evidence, modelEvidence=[e.model_dump() for e in answer.evidence],
                 conditions=[c.model_dump() for c in answer.conditions], qualityWarnings=warnings,
                 downgradeReasons=[], postprocessVersion=POSTPROCESS_VERSION)
 
@@ -135,6 +136,7 @@ def aggregate_result(output: dict):
     selected = segments[index]
     for key in ("window", "quality", "previewPath", "sampleManifest", "reason", "modelDecisionConfidence"):
         output[key] = selected[key]
+    output["videoDescription"] = selected.get("videoDescription")
     warnings = list(dict.fromkeys(w for s in segments for w in s.get("qualityWarnings", [])))
     if len(set(decisions)) > 1:
         warnings.append("different_segment_decisions")

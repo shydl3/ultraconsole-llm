@@ -3,20 +3,13 @@ from __future__ import annotations
 import asyncio
 import base64
 import io
-import json
-import math
 import os
-import struct
-import threading
 import time
 import uuid
 from pathlib import Path
-from typing import Annotated, Any
-from urllib.parse import urlsplit, urlunsplit
+from typing import Any
 
-import cv2
-import numpy as np
-from fastapi import FastAPI, File, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse
 from PIL import Image
@@ -25,7 +18,6 @@ from .config import settings
 from .devices import ensure_device_available
 from .infer_runtime import UltralyticsRuntime
 from .library_api import router as library_router
-from .rules_api import router as rules_router
 from .schemas import (
     ModelInfo,
     Params,
@@ -35,7 +27,7 @@ from .schemas import (
     SystemStats,
     UpdateParamsRequest,
 )
-from .security import require_http_auth, require_ws_auth, validate_rtsp_url
+from .security import require_http_auth, require_ws_auth
 from .state import AppState
 from .system_stats import system_stats
 from .video_api import router as video_router
@@ -72,7 +64,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-app.include_router(rules_router)
 app.include_router(vlm_router)
 app.include_router(video_router)
 app.include_router(library_router)
@@ -90,25 +81,6 @@ async def api_auth_middleware(request: Request, call_next):
 
 def _device_str(device: str) -> str:
     return "cuda" if device == "cuda" else "cpu"
-
-
-def _redacted_stream_url(url: str) -> str:
-    """日志中保留协议/主机/端口，移除 RTSP 用户名、密码、路径和查询参数。"""
-    parsed = urlsplit(url)
-    host = parsed.hostname or ""
-    if ":" in host and not host.startswith("["):
-        host = f"[{host}]"
-    if parsed.port:
-        host = f"{host}:{parsed.port}"
-    return urlunsplit((parsed.scheme, host, "", "", ""))
-
-
-def _pack_stream_frame(*, stream_id: str, frame_id: str, ts: float, width: int, height: int, jpeg: bytes) -> bytes:
-    header = json.dumps(
-        {"type": "frame", "streamId": stream_id, "frameId": frame_id, "ts": ts, "width": width, "height": height},
-        separators=(",", ":"),
-    ).encode("utf-8")
-    return struct.pack("!I", len(header)) + header + jpeg
 
 
 @app.get("/api/health")
@@ -277,24 +249,6 @@ def _decode_image(raw: bytes) -> Image.Image:
     return img
 
 
-async def _read_upload_limited(file: UploadFile) -> bytes:
-    content_length = file.headers.get("content-length")
-    if content_length:
-        try:
-            if int(content_length) > settings.max_upload_bytes:
-                raise HTTPException(status_code=413, detail="Image upload is too large")
-        except ValueError:
-            pass
-    chunks: list[bytes] = []
-    total = 0
-    while chunk := await file.read(1024 * 1024):
-        total += len(chunk)
-        if total > settings.max_upload_bytes:
-            raise HTTPException(status_code=413, detail="Image upload is too large")
-        chunks.append(chunk)
-    return b"".join(chunks)
-
-
 def _run_infer(
     image: Image.Image,
     conf: float,
@@ -312,38 +266,6 @@ def _run_infer(
         track=track,
         tracker_key=tracker_key,
     )
-
-
-@app.post("/api/infer/image", response_model=PredResponse)
-async def infer_image(file: Annotated[UploadFile, File()]) -> PredResponse:
-    cur = runtime.current()
-    if cur is None:
-        raise HTTPException(status_code=400, detail="No model loaded. Put weights into backend/models and select a model.")
-
-    if not file.content_type or not file.content_type.startswith("image/"):
-        raise HTTPException(status_code=400, detail=f"Unsupported content-type: {file.content_type}")
-
-    raw = await _read_upload_limited(file)
-    try:
-        img = await asyncio.to_thread(_decode_image, raw)
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Invalid image: {e}") from e
-
-    p = state.params
-    t0 = time.time()
-    try:
-        pred = await asyncio.to_thread(_run_infer, img, p.conf, p.iou, list(p.classFilter), p.track, "rest-frame")
-        state.logs.append(level="INFO", event="infer.image", msg="Image inferred", fields={"dtMs": int((time.time() - t0) * 1000)})
-        return pred
-    except Exception as e:
-        state.logs.append(level="ERROR", event="infer.image_failed", msg=str(e))
-        raise HTTPException(status_code=500, detail=str(e)) from e
-
-
-@app.post("/api/infer/frame", response_model=PredResponse)
-async def infer_frame(file: Annotated[UploadFile, File()]) -> PredResponse:
-    """Video 抽帧推理专用：允许 image/jpeg（以及其它 image/*），返回 PredResponse。"""
-    return await infer_image(file=file)
 
 
 @app.get("/api/logs/export.csv")
@@ -472,241 +394,3 @@ async def ws_infer(ws: WebSocket):
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
         runtime.release_tracker(tracker_key)
-
-
-@app.websocket("/ws/stream")
-async def ws_stream(ws: WebSocket):
-    """
-    RTSP 推流通道（多路）：
-    - 前端发 {type: 'rtsp.start', streamId, url, fps, conf, iou, classFilter, track}
-    - 服务端为每个 streamId 起独立 worker，frame/pred/log 消息都带 streamId
-    - {type: 'rtsp.stop', streamId} 单路停止；{type: 'rtsp.stopAll'} 全停。
-    - 不带 streamId 的旧客户端按 '__default__' 兼容。
-    """
-    authorized, subprotocol = await require_ws_auth(ws)
-    if not authorized:
-        return
-    await ws.accept(subprotocol=subprotocol)
-    loop = asyncio.get_running_loop()
-
-    streams: dict[str, dict[str, Any]] = {}  # streamId -> {"thread": Thread, "stop": Event}
-    streams_lock = threading.Lock()
-    outbound: asyncio.Queue[dict[str, Any] | bytes] = asyncio.Queue(maxsize=settings.max_rtsp_streams * 2 + 16)
-
-    def enqueue(payload: dict[str, Any] | bytes) -> None:
-        if outbound.full():
-            try:
-                outbound.get_nowait()
-            except asyncio.QueueEmpty:
-                pass
-        outbound.put_nowait(payload)
-
-    def submit(payload: dict[str, Any] | bytes) -> None:
-        try:
-            loop.call_soon_threadsafe(enqueue, payload)
-        except RuntimeError:
-            pass
-
-    def send_log(level: str, event: str, msg: str, stream_id: str | None = None, fields: dict[str, Any] | None = None) -> None:
-        entry = state.logs.append(level=level, event=event, msg=msg, fields=fields or {})
-        payload = {"type": "log", **entry.model_dump()}
-        if stream_id is not None:
-            payload["streamId"] = stream_id
-        submit(payload)
-
-    async def sender() -> None:
-        while True:
-            payload = await outbound.get()
-            if isinstance(payload, bytes):
-                await ws.send_bytes(payload)
-            else:
-                await ws.send_json(payload)
-
-    def stop_stream(stream_id: str, *, join_timeout: float = 2.0) -> None:
-        with streams_lock:
-            entry = streams.pop(stream_id, None)
-        if not entry:
-            return
-        ev: threading.Event = entry["stop"]
-        th: threading.Thread = entry["thread"]
-        ev.set()
-        if th.is_alive():
-            th.join(timeout=join_timeout)
-        runtime.release_tracker(f"rtsp:{stream_id}")
-
-    def stop_all_streams() -> None:
-        with streams_lock:
-            ids = list(streams.keys())
-        for sid in ids:
-            stop_stream(sid)
-
-    def start_rtsp_worker(
-        stream_id: str,
-        url: str,
-        fps: float,
-        conf: float,
-        iou: float,
-        class_filter: list[str],
-        track: bool,
-    ):
-        stop_ev = threading.Event()
-
-        def run():
-            safe_url = _redacted_stream_url(url)
-            cap = cv2.VideoCapture()
-            if hasattr(cv2, "CAP_PROP_OPEN_TIMEOUT_MSEC"):
-                cap.set(cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, 5_000)
-            if hasattr(cv2, "CAP_PROP_READ_TIMEOUT_MSEC"):
-                cap.set(cv2.CAP_PROP_READ_TIMEOUT_MSEC, 5_000)
-            cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-            cap.open(url)
-            if not cap.isOpened():
-                send_log("ERROR", "rtsp.open_failed", "Failed to open RTSP", stream_id, {"url": safe_url})
-                return
-
-            send_log("INFO", "rtsp.opened", "RTSP opened", stream_id, {"url": safe_url})
-
-            min_interval = 1.0 / max(1.0, float(fps))
-            last_sent = 0.0
-            frame_seq = 0
-            last_pred_perf: float | None = None
-
-            try:
-                while not stop_ev.is_set():
-                    ok, frame = cap.read()
-                    if not ok or frame is None:
-                        send_log("ERROR", "rtsp.read_failed", "RTSP read failed", stream_id, {"url": safe_url})
-                        break
-
-                    now = time.time()
-                    if now - last_sent < min_interval:
-                        continue
-                    last_sent = now
-
-                    h, w = frame.shape[:2]
-                    ok2, buf = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
-                    if not ok2:
-                        continue
-                    jpeg_bytes = buf.tobytes()
-                    frame_id = str(frame_seq)
-                    frame_seq += 1
-
-                    submit(
-                        _pack_stream_frame(
-                            stream_id=stream_id,
-                            frame_id=frame_id,
-                            ts=now,
-                            width=int(w),
-                            height=int(h),
-                            jpeg=jpeg_bytes,
-                        )
-                    )
-
-                    cur = runtime.current()
-                    if cur is None:
-                        send_log("ERROR", "infer.no_model", "No model loaded; stopping RTSP", stream_id)
-                        break
-
-                    try:
-                        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                        img = Image.fromarray(np.asarray(rgb))
-                        pred = runtime.infer_image(
-                            image=img,
-                            device=_device_str(state.engine.device),
-                            conf=conf,
-                            iou=iou,
-                            class_filter=class_filter,
-                            track=track,
-                            tracker_key=f"rtsp:{stream_id}",
-                        )
-                        now_perf = time.perf_counter()
-                        if last_pred_perf is not None:
-                            dt = max(1e-6, now_perf - last_pred_perf)
-                            pred.telemetry.fps = 1.0 / dt
-                        last_pred_perf = now_perf
-                        pred.frameId = frame_id
-                        pred.ts = now
-                        payload = {"type": "pred", "streamId": stream_id, **pred.model_dump()}
-                        submit(payload)
-                    except Exception as e:
-                        send_log("ERROR", "infer.rtsp_failed", str(e), stream_id, {"frameId": frame_id})
-            finally:
-                cap.release()
-                runtime.release_tracker(f"rtsp:{stream_id}")
-                send_log("INFO", "rtsp.stopped", "RTSP stopped", stream_id)
-                with streams_lock:
-                    cur_entry = streams.get(stream_id)
-                    if cur_entry is not None and cur_entry.get("stop") is stop_ev:
-                        streams.pop(stream_id, None)
-
-        thread = threading.Thread(target=run, daemon=True)
-        with streams_lock:
-            streams[stream_id] = {"thread": thread, "stop": stop_ev}
-        thread.start()
-
-    sender_task = asyncio.create_task(sender())
-    try:
-        while True:
-            msg = await ws.receive_json()
-            mtype = msg.get("type")
-            if mtype == "ping":
-                enqueue({"type": "pong", "ts": time.time()})
-                continue
-            if mtype == "rtsp.start":
-                url = str(msg.get("url", "")).strip()
-                stream_id = str(msg.get("streamId") or "__default__")
-                if len(stream_id) > 64 or not stream_id.replace("_", "").replace("-", "").isalnum():
-                    send_log("ERROR", "rtsp.invalid", "Invalid streamId")
-                    continue
-                try:
-                    validate_rtsp_url(url)
-                    p = state.params
-                    fps = float(msg.get("fps", 10))
-                    if not math.isfinite(fps) or fps < 1 or fps > settings.max_rtsp_fps:
-                        raise ValueError(f"fps must be between 1 and {settings.max_rtsp_fps}")
-                    stream_params = Params(
-                        conf=msg.get("conf", p.conf),
-                        iou=msg.get("iou", p.iou),
-                        classFilter=msg.get("classFilter", p.classFilter),
-                        track=msg.get("track", p.track),
-                    )
-                except Exception as exc:
-                    send_log("ERROR", "rtsp.invalid", str(exc), stream_id)
-                    continue
-                with streams_lock:
-                    is_new = stream_id not in streams
-                    at_capacity = is_new and len(streams) >= settings.max_rtsp_streams
-                if at_capacity:
-                    send_log("ERROR", "rtsp.limit", f"Maximum {settings.max_rtsp_streams} streams", stream_id)
-                    continue
-                await asyncio.to_thread(stop_stream, stream_id)
-                start_rtsp_worker(
-                    stream_id=stream_id,
-                    url=url,
-                    fps=fps,
-                    conf=stream_params.conf,
-                    iou=stream_params.iou,
-                    class_filter=list(stream_params.classFilter), track=stream_params.track,
-                )
-                continue
-
-            if mtype == "rtsp.stop":
-                stream_id = str(msg.get("streamId") or "__default__")
-                await asyncio.to_thread(stop_stream, stream_id)
-                send_log("INFO", "rtsp.stop", "Stopped by client", stream_id)
-                continue
-
-            if mtype == "rtsp.stopAll":
-                await asyncio.to_thread(stop_all_streams)
-                send_log("INFO", "rtsp.stopAll", "All streams stopped")
-                continue
-
-    except WebSocketDisconnect:
-        await asyncio.to_thread(stop_all_streams)
-        state.logs.append(level="INFO", event="ws.stream.disconnect", msg="Client disconnected")
-    except Exception as e:
-        await asyncio.to_thread(stop_all_streams)
-        state.logs.append(level="ERROR", event="ws.stream.crash", msg=str(e))
-    finally:
-        sender_task.cancel()
-        await asyncio.gather(sender_task, return_exceptions=True)

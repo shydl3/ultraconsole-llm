@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "ultra-rules"
 version = "0.1.0"
-description = "Offline video event detection rules for UltraConsole (see 离线视频事件检测开发方案.md)"
+description = "Video semantic analysis for UltraConsole"
 requires-python = ">=3.10"
 # 依赖复用仓库根 conda 环境（ultralytics/opencv/numpy/pydantic），不在此重复声明安装。
 dependencies = []

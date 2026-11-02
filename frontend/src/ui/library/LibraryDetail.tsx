@@ -1,5 +1,6 @@
 import { RuleSnapshotView } from '../vlm/RuleSnapshotView'
 import { QualityWarnings } from '../vlm/QualityWarnings'
+import { ModelExplanation } from '../vlm/ModelExplanation'
 import { useEffect, useRef, useState } from 'react'
 import { apiLibrary, apiLibraryMedia } from '../../api/client'
 import { useT } from '../../i18n'
@@ -64,24 +65,25 @@ export function LibraryDetail({ item, onClose, revision }: { item: LibraryItem; 
       {detail.metadata.error ? <p className={styles.error}>{String(detail.metadata.error)}</p> : null}
       {!detail.results.length && <p className={styles.muted}>{t('library.noResults')}</p>}
       {detail.results.map(result => {
-        const semantic = 'resultId' in result
-        const id = semantic ? result.resultId : result.eventId
-        const time = semantic ? result.triggerSec : (result.triggerSec ?? result.startSec)
-        const images = semantic
-          ? (result.segments || []).flatMap(s => s.previewPath ? [`/api/vlm/runs/${item.id}/artifacts/${s.previewPath}`] : [])
-          : (result.keyframes || []).map(f => `/api/rules/runs/${item.id}/frames/${f.path}`)
-        return <article className={styles.result} key={id}>
+        const id = result.resultId
+        const time = result.triggerSec
+        const images = (result.segments || []).flatMap(s => s.previewPath ? [`/api/vlm/runs/${item.id}/artifacts/${s.previewPath}`] : [])
+        return <article className={styles.result} key={result.resultId}>
           <div className={styles.headingRow}>
-            <strong>{semantic ? `#${result.trackId} · ${result.poiId}` : result.ruleId}</strong>
+            <strong>{`#${result.trackId} · ${result.poiId}`}</strong>
             <span className={styles.badge}>{time?.toFixed(2)}s</span>
           </div>
-          {semantic && <p>{result.description}</p>}
-          <p>{semantic ? t(`vlm.${result.decision}`) : result.status}</p>
-          <p className={styles.muted}>{semantic ? result.reason : result.reasons?.join(' · ')}</p>
-          {semantic && result.modelDecisionConfidence != null && <p>{t('vlm.confidence')}: {(result.modelDecisionConfidence * 100).toFixed(0)}%</p>}
-          {semantic && <QualityWarnings warnings={result.qualityWarnings} />}
+          <p>{result.description}</p>
+          <p>{t(`vlm.${result.decision}`)}</p>
+          <ModelExplanation videoDescription={result.videoDescription} reason={result.reason} />
+          {result.modelDecisionConfidence != null && <p>{t('vlm.confidence')}: {(result.modelDecisionConfidence * 100).toFixed(0)}%</p>}
+          <QualityWarnings warnings={result.qualityWarnings} />
           {images.length > 0 && <button onClick={() => setExpanded(expanded === id ? '' : id)}>{t('library.evidence')}</button>}
-          {expanded === id && images.map((url, index) => <Media key={`${url}-${index}`} url={url} image name={t('library.evidence')} />)}
+          {expanded === id && (result.segments || []).map((segment, index) => <div key={index}>
+            <p className={styles.muted}>{segment.window.startSec.toFixed(2)}–{segment.window.endSec.toFixed(2)}s</p>
+            <ModelExplanation videoDescription={segment.videoDescription} reason={segment.reason} />
+            {segment.previewPath && <Media url={`/api/vlm/runs/${item.id}/artifacts/${segment.previewPath}`} image name={t('library.evidence')} />}
+          </div>)}
         </article>
       })}
       {detail.total > 20 && <div className={styles.pager}>

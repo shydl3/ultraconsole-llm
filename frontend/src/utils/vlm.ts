@@ -15,9 +15,9 @@ export type VlmResult = {
   resultId: string; trackId: number; trackSegmentId: string; poiId: string; triggerSec: number
   triggerKind: string; eventDefinitionId: string; description: string; decision: string
   inferenceStatus: string; modelDecisionConfidence: number | null; reason: string; error?: string
-  modelDecision?: string
+  modelDecision?: string; videoDescription?: string | null
   previewPath?: string; downgradeReasons?: string[]; qualityWarnings?: string[]; postprocessVersion?: string
-  segments?: { previewPath?: string; reason?: string; decision?: string; rawOutputPath?: string; sampleManifest?: string; window: { startSec: number; endSec: number } }[]
+  segments?: { previewPath?: string; reason?: string; videoDescription?: string | null; decision?: string; rawOutputPath?: string; sampleManifest?: string; window: { startSec: number; endSec: number } }[]
 }
 
 export const activeVlm = (state: string) => ['queued', 'tracking', 'understanding', 'cancelling'].includes(state)

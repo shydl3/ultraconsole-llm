@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import type {
-  AlertConfig, ConnState, Counters, DeviceType, EventEntry, EventsConfig, LogEntry,
+  AlertConfig, Counters, DeviceType, EventEntry, EventsConfig, LogEntry,
   ModelInfo, OSDFlags, Params, PredResponse, RoiState, SystemStats,
 } from '../api/contracts'
 
@@ -21,7 +21,6 @@ type ConsoleState = {
   alert: { active: boolean; reason?: string; streak: number }
   alertConfig: AlertConfig
   roi: RoiState
-  connections: { inferWs: ConnState; rtspWs: ConnState }
   telemetrySummary: { fps?: number }
   systemStats?: SystemStats
 
@@ -42,7 +41,6 @@ type ConsoleState = {
   setAlert: (p: Partial<ConsoleState['alert']>) => void
   setAlertConfig: (p: Partial<AlertConfig>) => void
   setRoi: (p: Partial<RoiState>) => void
-  setConnections: (p: Partial<ConsoleState['connections']>) => void
   setTelemetrySummary: (p: Partial<ConsoleState['telemetrySummary']>) => void
   setSystemStats: (s?: SystemStats) => void
 
@@ -68,7 +66,6 @@ export const useConsoleStore = create<ConsoleState>((set, get) => ({
   alert: { active: false, streak: 0 },
   alertConfig: { enabled: false, minFrames: 5, sound: false },
   roi: { enabled: false, polygon: [], closed: false, applyFilter: true, mode: 'rect' },
-  connections: { inferWs: 'idle', rtspWs: 'idle' },
   telemetrySummary: {},
   systemStats: undefined,
 
@@ -107,7 +104,6 @@ export const useConsoleStore = create<ConsoleState>((set, get) => ({
   setAlert: (p) => set({ alert: { ...get().alert, ...p } }),
   setAlertConfig: (p) => set({ alertConfig: { ...get().alertConfig, ...p } }),
   setRoi: (p) => set({ roi: { ...get().roi, ...p } }),
-  setConnections: (p) => set({ connections: { ...get().connections, ...p } }),
   setTelemetrySummary: (p) => set({ telemetrySummary: { ...get().telemetrySummary, ...p } }),
   setSystemStats: (s) => set({ systemStats: s }),
 

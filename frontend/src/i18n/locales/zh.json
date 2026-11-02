@@ -16,16 +16,9 @@
     "selectModelHint": "请选择模型（backend/models）",
     "warming": "预热中…",
     "classHint": "选择模型后，这里会出现类别标签。",
-    "enableTracking": "启用 ByteTrack（Webcam / RTSP / Wall；Video 自动启用）",
+    "enableTracking": "Video 分析自动启用 ByteTrack",
     "trackingHint": "开启后 bbox 会带 trackId、轨迹 & 计数线/区域生效。",
     "drawLineHint": "画线/区域：在画面右键菜单切换\"Line / Zone\"工具，或使用 ROI 工具旁的快捷按钮。"
-  },
-  "image": {
-    "selectImage": "选择图片",
-    "clear": "清空",
-    "dragHint": "拖拽图片到此处，或点击「选择图片」。",
-    "dropHint": "松开以载入图片",
-    "inferring": "推理中…"
   },
   "video": {
     "selectVideo": "选择视频",
@@ -50,22 +43,6 @@
     "preparingConvert": "正在生成 H.264 兼容预览（仅视频），长录像可能需要数分钟：",
     "prepareError": "兼容预览生成失败：",
     "prepareCancelled": "已取消兼容预览，请重新选择视频以重试。"
-  },
-  "webcam": {
-    "startPreview": "启动预览",
-    "stopPreview": "停止预览",
-    "stopInfer": "停止推理",
-    "connecting": "连接中…"
-  },
-  "rtsp": {
-    "start": "开始",
-    "emptyHint": "填入 RTSP 地址后点击\"开始\"。"
-  },
-  "wall": {
-    "grid": "网格",
-    "startAll": "全部开始",
-    "stopAll": "全部停止",
-    "emptyHint": "填 RTSP 地址后点开始"
   },
   "monitor": {
     "reset": "重置",
@@ -159,7 +136,9 @@
     "match": "匹配",
     "no_match": "不匹配",
     "uncertain": "证据不足",
-    "originalDecision": "模型原始判断"
+    "originalDecision": "模型原始判断",
+    "videoDescription": "视频内容描述",
+    "judgmentReason": "判断依据"
   },
   "vlmParameters": {
     "modelPath": "语义分析模型",
@@ -187,7 +166,7 @@
     "poseFps": "姿态检测频率（帧/秒）",
     "poseFpsHint": "用于人物跟踪和 POI 候选检测，也决定可用于 Qwen 的观测帧密度。",
     "maxNewTokens": "模型输出上限（token）",
-    "maxNewTokensHint": "是上限而非目标长度，完整 JSON 输出后即停止；过低可能截断回答。",
+    "maxNewTokensHint": "详细视频描述和判断依据建议至少 1024 tokens。生成完整 JSON 后自动停止；上限过低可能截断回答。",
     "poseDevice": "姿态检测设备",
     "deviceHint": "默认 CUDA。此选项只控制姿态检测，Qwen 仍使用 GPU。",
     "conf": "人物检测置信度阈值",
@@ -205,7 +184,9 @@
     "windowHint": "触发前后时长在每条事件规则的“编辑 → 高级设置”中设置，默认前 4 秒、后 6 秒。",
     "snapshot": "查看本次任务实际参数",
     "yes": "是",
-    "no": "否"
+    "no": "否",
+    "lowOutputBudget": "当前沿用的输出上限低于详细描述建议值，可能截断回答。",
+    "useOutputBudget": "使用推荐输出上限"
   },
   "library": {
     "title": "记录与视频管理",
@@ -215,7 +196,6 @@
     "filter": "记录分类",
     "all": "全部记录",
     "vlm": "语义分析",
-    "rules": "规则分析",
     "video": "转换视频",
     "search": "搜索名称、原文件名或记录 ID",
     "selected": "已选择 {{count}} 项",
@@ -239,7 +219,7 @@
     "loading": "正在加载…",
     "empty": "没有找到记录",
     "storage": "转换视频保存目录：",
-    "retainHint": "已完成的视频长期保留。此处管理已落盘的语义分析和离线规则记录，不包含当前会话的实时日志。",
+    "retainHint": "已完成的转换视频会保留。此处管理已保存的语义分析记录和转换视频。",
     "renameHint": "修改显示名称，保留原始文件名、记录 ID 和视频复用关系。",
     "cancel": "取消",
     "working": "处理中…",

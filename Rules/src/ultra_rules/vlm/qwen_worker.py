@@ -132,6 +132,8 @@ def understand(run_dir: Path):
                                 if stats["generationTruncated"] and not complete_json_answer(raw):
                                     raise ValueError("generation_truncated_or_timeout")
                                 answer = parse_answer(raw, start, end, len(event.criteria or [event.description]), check_timestamps=False)
+                                if not answer.videoDescription or not answer.videoDescription.strip():
+                                    raise ValueError("missing_video_description")
                                 apply_answer(part, answer)
                                 part["rawOutputPath"] = raw_path
                                 last_error = None

@@ -78,6 +78,10 @@ export function AnalysisParameters({ disabled, onChange }: { disabled: boolean; 
         </label>
       </div>
       {parsed?.value && parsed.value.sampleFps > parsed.value.poseFps && <p className={styles.hint}>{t('vlmParameters.rateHint')}</p>}
+      {parsed?.value && parsed.value.maxNewTokens < contract.defaults.maxNewTokens && <div className={styles.toolbar}>
+        <span className={styles.hint}>{t('vlmParameters.lowOutputBudget')}</span>
+        <button type="button" onClick={() => update({ ...draft, maxNewTokens: String(contract.defaults.maxNewTokens) })}>{t('vlmParameters.useOutputBudget')}</button>
+      </div>}
       <p className={styles.hint}>{t('vlmParameters.samplingHint')}</p>
       <p className={styles.hint}>{t('vlmParameters.windowHint')}</p>
       <details><summary>{t('vlmParameters.advanced')}</summary>

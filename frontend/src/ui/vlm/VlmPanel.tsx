@@ -7,6 +7,7 @@ import styles from './VlmPanel.module.css'
 import { EventRulesEditor, type RulesEditorHandle, type RulesEditorState } from './EventRulesEditor'
 import { RuleSnapshotView } from './RuleSnapshotView'
 import { QualityWarnings } from './QualityWarnings'
+import { ModelExplanation } from './ModelExplanation'
 import type { RuleSnapshot } from '../../utils/eventRules'
 import { AnalysisParameters, ParameterSnapshot } from './AnalysisParameters'
 import type { VlmParameters } from '../../utils/vlmParameters'
@@ -166,7 +167,7 @@ export function VlmPanel({ file, eventsConfig, basicRunning, onBusyChange }: {
         <strong className={styles[result.decision]}>{result.inferenceStatus === 'failed' ? t('vlm.failed') : result.inferenceStatus === 'dry_run' ? t('vlm.dryRun') : t(`vlm.${result.decision}`)}</strong>
       </div>
       <div>{result.description}</div>
-      <div>{result.reason}</div>
+      <ModelExplanation videoDescription={result.videoDescription} reason={result.reason} />
       {result.modelDecision && result.modelDecision !== result.decision && <div className={styles.hint}>
         {t('vlm.originalDecision')}: {t(`vlm.${result.modelDecision}`)}
       </div>}
@@ -175,7 +176,8 @@ export function VlmPanel({ file, eventsConfig, basicRunning, onBusyChange }: {
       {result.downgradeReasons?.length ? <div className={styles.hint}>{t('vlm.review')}: {result.downgradeReasons.join(', ')}</div> : null}
       {result.error && <div className={styles.error}>{result.error}</div>}
       {expanded === result.resultId && (result.segments || []).map((segment, index) => <div key={index}>
-        <p>{segment.window.startSec.toFixed(2)}–{segment.window.endSec.toFixed(2)}s · {segment.reason}</p>
+        <p>{segment.window.startSec.toFixed(2)}–{segment.window.endSec.toFixed(2)}s</p>
+        <ModelExplanation videoDescription={segment.videoDescription} reason={segment.reason} />
         {segment.previewPath && <EvidenceImage runId={runId} path={segment.previewPath} />}
       </div>)}
     </article>)}
