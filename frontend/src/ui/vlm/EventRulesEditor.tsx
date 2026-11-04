@@ -12,11 +12,12 @@ function Dialog({ title, children, close }: { title: string; children: ReactNode
   return <dialog ref={ref} onCancel={e => { e.preventDefault(); close() }} className={styles.dialog} aria-label={title}><h3>{title}</h3>{children}</dialog>
 }
 
-export const EventRulesEditor = forwardRef<RulesEditorHandle, { pois: RulePoi[]; onStateChange: (state: RulesEditorState) => void }>(function EventRulesEditor({ pois, onStateChange }, ref) {
+export const EventRulesEditor = forwardRef<RulesEditorHandle, { pois: RulePoi[]; cues: RulePoi[]; onStateChange: (state: RulesEditorState) => void }>(function EventRulesEditor({ pois, cues, onStateChange }, ref) {
   const t = useT()
   const [library, setLibrary] = useState<RuleLibrary | null>(null)
   const [rows, setRows] = useState<EventRule[]>([])
   const [bindings, setBindings] = useState<Record<string, string[]>>({})
+  const [cueBindings, setCueBindings] = useState<Record<string, string[]>>({})
   const [selected, setSelected] = useState<string[]>([])
   const [query, setQuery] = useState('')
   const [edit, setEdit] = useState<EventRule | null>(null)
@@ -32,7 +33,7 @@ export const EventRulesEditor = forwardRef<RulesEditorHandle, { pois: RulePoi[];
   const saved = new Map(library?.rules.map(row => [row.id, row]))
   const dirty = rows.filter(row => ruleChanged(row, saved.get(row.id)))
   const enabled = rows.filter(row => row.enabled)
-  const ready = !!library && enabled.length > 0 && enabled.length <= 30 && enabled.every(row => !ruleError(row) && !bindingError(row, bindings[row.id] || [], pois))
+  const ready = !!library && enabled.length > 0 && enabled.length <= 30 && enabled.every(row => !ruleError(row) && !bindingError(row, bindings[row.id] || [], pois) && (cueBindings[row.id] || []).every(id => cues.some(c => c.id === id)))
 
   useEffect(() => {
     const controller = new AbortController()
@@ -71,7 +72,7 @@ export const EventRulesEditor = forwardRef<RulesEditorHandle, { pois: RulePoi[];
     setBusy(true); setError('')
     try {
       const current = dirty.length ? await commit(dirty) : { library: library!, rows }
-      return { revision: current.library.revision, selections: current.rows.filter(r => r.enabled).map(r => ({ id: r.id, version: r.version, poiIds: bindings[r.id] || [] })) }
+      return { revision: current.library.revision, selections: current.rows.filter(r => r.enabled).map(r => ({ id: r.id, version: r.version, poiIds: bindings[r.id] || [], cueIds: cueBindings[r.id] || [] })) }
     } finally { setBusy(false) }
   }
   useImperativeHandle(ref, () => ({ prepare }))
@@ -100,6 +101,7 @@ export const EventRulesEditor = forwardRef<RulesEditorHandle, { pois: RulePoi[];
       return [...map.values()]
     })
     setBindings(previous => ({ ...previous, ...Object.fromEntries(mapped.map(row => [row.id, row.poiIds])) }))
+    setCueBindings(previous => ({ ...previous, ...Object.fromEntries(mapped.map(row => [row.id, row.cueIds || []])) }))
     setSelected(mapped.map(row => row.id)); setPending([]); setBulk(null); setNotice(t('eventRules.imported'))
   }
   const filtered = rows.filter(row => `${row.name} ${row.description} ${row.id}`.toLowerCase().includes(query.toLowerCase()))
@@ -129,7 +131,7 @@ export const EventRulesEditor = forwardRef<RulesEditorHandle, { pois: RulePoi[];
     {!library && !error && <p>{t('eventRules.loading')}</p>}
     <div className={styles.tableWrap}><table><thead><tr>
       <th><input type="checkbox" aria-label={t('eventRules.selectAll')} disabled={busy || !filtered.length} checked={!!filtered.length && filtered.every(r => selected.includes(r.id))} onChange={e => setSelected(e.target.checked ? filtered.map(r => r.id) : [])} /></th>
-      <th>{t('eventRules.enabled')}</th><th>{t('eventRules.definition')}</th><th>{t('eventRules.poi')}</th><th>{t('eventRules.state')}</th><th>{t('eventRules.actions')}</th>
+      <th>{t('eventRules.enabled')}</th><th>{t('eventRules.definition')}</th><th>{t('eventRules.poi')}</th><th>{t('eventRules.cue')}</th><th>{t('eventRules.state')}</th><th>{t('eventRules.actions')}</th>
     </tr></thead><tbody>{filtered.map(row => {
       const changed = ruleChanged(row, saved.get(row.id))
       const problem = ruleError(row) || (row.enabled && (pois.length || bindings[row.id]?.length) ? bindingError(row, bindings[row.id] || [], pois) : '')
@@ -140,6 +142,10 @@ export const EventRulesEditor = forwardRef<RulesEditorHandle, { pois: RulePoi[];
         <td><details><summary>{bindings[row.id]?.length ? t('eventRules.poiCount', { count: bindings[row.id].length }) : t('eventRules.allPoi')}</summary>
           <button disabled={busy} onClick={() => setBindings(previous => ({ ...previous, [row.id]: [] }))}>{t('eventRules.allPoi')}</button>
           {Array.from(new Set([...pois.map(p => p.id), ...(bindings[row.id] || [])])).map(id => <label className={styles.poi} key={id}><input type="checkbox" disabled={busy} checked={(bindings[row.id] || []).includes(id)} onChange={e => setBindings(previous => ({ ...previous, [row.id]: e.target.checked ? [...(previous[row.id] || []), id] : (previous[row.id] || []).filter(p => p !== id) }))} />{pois.find(p => p.id === id)?.label || id}{!pois.some(p => p.id === id) ? ` (${t('eventRules.missing')})` : ''}</label>)}
+        </details></td>
+        <td><details><summary>{cueBindings[row.id]?.length ? t('eventRules.cueCount', { count: cueBindings[row.id].length }) : t('eventRules.allCue')}</summary>
+          <button disabled={busy} onClick={() => setCueBindings(previous => ({ ...previous, [row.id]: [] }))}>{t('eventRules.allCue')}</button>
+          {Array.from(new Set([...cues.map(c => c.id), ...(cueBindings[row.id] || [])])).map(id => <label className={styles.poi} key={id}><input type="checkbox" disabled={busy} checked={(cueBindings[row.id] || []).includes(id)} onChange={e => setCueBindings(previous => ({ ...previous, [row.id]: e.target.checked ? [...(previous[row.id] || []), id] : (previous[row.id] || []).filter(c => c !== id) }))} />{cues.find(c => c.id === id)?.label || id}{!cues.some(c => c.id === id) ? ` (${t('eventRules.missing')})` : ''}</label>)}
         </details></td>
         <td><span className={changed ? styles.dirty : styles.hint}>{!saved.has(row.id) ? t('eventRules.unsaved') : changed ? t('eventRules.modified') : `${t('eventRules.savedState')} · v${row.version}`}</span></td>
         <td><div className={styles.actions}>

@@ -5,12 +5,10 @@ import { useConsoleStore } from '../../store/useConsoleStore'
 import { formatVideoTime } from '../../utils/videoAnalysis'
 import { useEventTracker } from '../../utils/useEventTracker'
 import { useSystemStats } from '../../utils/useSystemStats'
-import { useWebhookDispatcher } from '../../utils/useWebhookDispatcher'
 import { Card } from '../primitives/Card'
 import { NeoButton } from '../primitives/NeoButton'
 import { ConfigCard } from './ConfigCard'
 import { SystemStatsCard } from './SystemStatsCard'
-import { WebhookCard } from './WebhookCard'
 import styles from './MonitorPanel.module.css'
 
 export function MonitorPanel() {
@@ -28,10 +26,9 @@ export function MonitorPanel() {
   const eventsConfig = useConsoleStore((s) => s.eventsConfig)
   const resetCounters = useConsoleStore((s) => s.resetCounters)
 
-  // 启动全局 hook：系统资源轮询、事件追踪、webhook 派发
+  // 启动全局 hook：系统资源轮询、事件追踪
   useSystemStats()
   useEventTracker()
-  useWebhookDispatcher()
 
   // 轻量规则引擎：目标类别出现连续 N 帧 -> 告警
   const prevActiveRef = useRef(false)
@@ -119,8 +116,6 @@ export function MonitorPanel() {
   return (
     <div className={styles.stack}>
       <SystemStatsCard />
-
-      <WebhookCard />
 
       <ConfigCard />
 

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { apiLibrary } from '../../api/client'
 import { useT } from '../../i18n'
 import { useLocaleStore } from '../../i18n/store'
+import { useUiStore } from '../../store/useUiStore'
 import { formatBytes, libraryKey, libraryPath, type LibraryItem, type LibraryKind, type LibraryList } from '../../utils/library'
 import { LibraryDetail } from './LibraryDetail'
 import styles from './LibraryPage.module.css'
@@ -18,6 +19,7 @@ export function LibraryPage() {
   const t = useT()
   const locale = useLocaleStore(s => s.locale)
   const setLocale = useLocaleStore(s => s.setLocale)
+  const setView = useUiStore(s => s.setView)
   const [kind, setKind] = useState<LibraryKind | 'all'>('all')
   const [query, setQuery] = useState('')
   const [offset, setOffset] = useState(0)
@@ -91,7 +93,7 @@ export function LibraryPage() {
     <header className={styles.header}>
       <div><span className={styles.brand}>ULTRACONSOLE / LIBRARY</span><h1>{t('library.title')}</h1><p className={styles.muted}>{t('library.subtitle')}</p></div>
       <div className={styles.actions}>
-        <a href="/" target="ultraconsole-main" className={styles.link}>{t('library.console')}</a>
+        <button className={styles.link} onClick={() => setView('console')}>{t('library.console')}</button>
         <button onClick={() => setLocale(locale === 'zh' ? 'en' : 'zh')}>{locale === 'zh' ? 'EN' : '中文'}</button>
         <button onClick={() => { setLoading(true); refresh() }}>{t('library.refresh')}</button>
       </div>

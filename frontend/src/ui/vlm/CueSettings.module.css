@@ -1,0 +1,38 @@
+.wrap {
+  margin-top: 0.5rem;
+}
+
+.hint {
+  color: #8a8f98;
+  font-size: 0.8rem;
+  margin: 0.25rem 0;
+}
+
+.cue {
+  border: 1px solid #333;
+  border-radius: 6px;
+  padding: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.cue legend {
+  font-size: 0.85rem;
+  padding: 0 0.25rem;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 0.5rem;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 0.78rem;
+}
+
+.field input {
+  width: 100%;
+}

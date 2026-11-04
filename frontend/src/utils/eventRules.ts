@@ -3,15 +3,15 @@ import type { VlmEventDefinition } from './vlm'
 export const triggerKinds = ['line.cross', 'zone.enter', 'zone.leave', 'initial_inside'] as const
 export type EventRule = Required<VlmEventDefinition> & { name: string; version: number; createdAt?: number; updatedAt?: number }
 export type RuleLibrary = { revision: number; rules: EventRule[] }
-export type RuleSelection = { id: string; version: number; poiIds: string[] }
+export type RuleSelection = { id: string; version: number; poiIds: string[]; cueIds: string[] }
 export type RuleSnapshot = { libraryRevision: number | null; rules: { id: string; name: string; version: number | null; event: VlmEventDefinition }[] }
 export type RulePoi = { id: string; label: string; kind: string }
 export const newRuleId = () => `event_${crypto.randomUUID().replaceAll('-', '')}`
 export function newRule(description = ''): EventRule {
-  return { id: newRuleId(), name: description.slice(0, 160), description, enabled: true, poiIds: [], triggerKinds: ['line.cross', 'zone.enter', 'zone.leave'], preSeconds: 4, postSeconds: 6, criteria: [], uncertainWhen: [], version: 0 }
+  return { id: newRuleId(), name: description.slice(0, 160), description, enabled: true, poiIds: [], cueIds: [], triggerKinds: ['line.cross', 'zone.enter', 'zone.leave'], preSeconds: 4, postSeconds: 6, criteria: [], uncertainWhen: [], version: 0 }
 }
 export function rulePayload(rule: EventRule) {
-  return { id: rule.id, name: rule.name.trim(), description: rule.description.trim(), enabled: rule.enabled, poiIds: [], triggerKinds: rule.triggerKinds, preSeconds: rule.preSeconds, postSeconds: rule.postSeconds, criteria: rule.criteria, uncertainWhen: rule.uncertainWhen }
+  return { id: rule.id, name: rule.name.trim(), description: rule.description.trim(), enabled: rule.enabled, poiIds: [], cueIds: [], triggerKinds: rule.triggerKinds, preSeconds: rule.preSeconds, postSeconds: rule.postSeconds, criteria: rule.criteria, uncertainWhen: rule.uncertainWhen }
 }
 export const ruleChanged = (rule: EventRule, saved?: EventRule) => !saved || JSON.stringify(rulePayload(rule)) !== JSON.stringify(rulePayload(saved))
 export function ruleError(rule: EventRule): string {
@@ -46,7 +46,7 @@ export function parseRuleImport(text: string): EventRule[] {
     }
     if (!/^[A-Za-z0-9_-]{1,80}$/.test(rule.id) || ids.has(rule.id)) throw new Error(`Invalid or duplicate ID: ${rule.id}`)
     ids.add(rule.id)
-    for (const key of ['criteria', 'uncertainWhen', 'triggerKinds', 'poiIds'] as const) {
+    for (const key of ['criteria', 'uncertainWhen', 'triggerKinds', 'poiIds', 'cueIds'] as const) {
       if (item[key] !== undefined) {
         if (!Array.isArray(item[key]) || item[key].some(s => typeof s !== 'string')) throw new Error(`Invalid ${key}`)
         rule[key] = item[key] as string[]

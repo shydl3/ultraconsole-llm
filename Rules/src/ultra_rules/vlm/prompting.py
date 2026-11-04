@@ -7,7 +7,7 @@ from .contracts import EventDefinition
 PROMPT_VERSION = "target-event-described-json-v5"
 
 
-def prompt(candidate: dict, event: EventDefinition, manifest: dict, *, retry: bool = False):
+def prompt(candidate: dict, event: EventDefinition, manifest: dict, *, retry: bool = False, cue_evidence: dict | None = None):
     observations = manifest["observations"]
     # Full pose observations remain on disk. Bound auxiliary text in a 2B context.
     step = max(1, (len(observations) + 5) // 6)
@@ -15,6 +15,14 @@ def prompt(candidate: dict, event: EventDefinition, manifest: dict, *, retry: bo
     context = {"targetId": candidate["trackId"], "trigger": {k: candidate[k] for k in ("triggerKind", "triggerSec", "direction")},
                "window": manifest["window"], "quality": manifest["quality"], "observations": summary}
     criteria = event.criteria or [event.description]
+    cue_note = ""
+    if cue_evidence:
+        state = cue_evidence.get("state")
+        onset = cue_evidence.get("onsetSec")
+        cue_note = "\n确定性检测：门框红灯状态=" + str(state)
+        if onset is not None:
+            cue_note += f"，亮起起始约 {onset:.1f}s"
+        cue_note += "。请结合画面复核该线索，不要仅凭此提示下结论。"
     return (
         "你是视频事件核验助手。只判断粉红框标记 TARGET 的那个人，其他框只是旁人。"
         "粉红或红色TARGET框、绿色旁人框、黄色POI线和文字均为人工叠加标注，不是现场物体或灯光；"
@@ -47,6 +55,7 @@ def prompt(candidate: dict, event: EventDefinition, manifest: dict, *, retry: bo
         '格式示例（内容必须依据实际画面填写）：{"videoDescription":"目标开始时的可见状态、动作的先后过程、结束状态及看不清之处。",'
         '"decision":"uncertain","confidence":null,"reason":"逐项对应事件条件的可见依据与缺失信息。"}。'
         "输出右花括号后立即结束。"
+        + cue_note
         + ("\n上次回答格式无效或缺少视频描述。本次输出完整且合法的上述四字段JSON，"
            "保留具体的视频过程描述和判断依据，控制在建议长度内并正确闭合引号和花括号。" if retry else "")
     )

@@ -1,6 +1,7 @@
 import { useConsoleStore } from '../../store/useConsoleStore'
 import { useLocaleStore } from '../../i18n/store'
 import { useT } from '../../i18n'
+import { useUiStore } from '../../store/useUiStore'
 import styles from './SystemStatusBar.module.css'
 
 function fmtFps(x?: number) {
@@ -15,14 +16,12 @@ export function SystemStatusBar() {
   const fps = useConsoleStore((s) => s.telemetrySummary.fps)
   const locale = useLocaleStore((s) => s.locale)
   const setLocale = useLocaleStore((s) => s.setLocale)
+  const setView = useUiStore((s) => s.setView)
 
   return (
     <div className={styles.bar}>
       <div className={styles.left}>
-        <a className={styles.libraryLink} href="/library" target="ultraconsole-library" onClick={e => {
-          const popup = window.open('/library', 'ultraconsole-library', 'popup,width=1440,height=960')
-          if (popup) { e.preventDefault(); popup.focus() }
-        }}>{t('library.title')} ↗</a>
+        <button className={styles.libraryLink} onClick={() => setView('library')}>{t('library.title')}</button>
         <span className={styles.item}>
           Model <span className={styles.value}>{modelId || '(none)'}</span>
         </span>

@@ -44,10 +44,11 @@ export function VideoTab() {
   const [videoLoaded, setVideoLoaded] = useState(false)
   const [targetFps, setTargetFps] = useState(8)
   const [dragOver, setDragOver] = useState(false)
-  const [editTool, setEditTool] = useState<'none' | 'line' | 'zone'>('none')
+  const [editTool, setEditTool] = useState<'none' | 'line' | 'zone' | 'cue'>('none')
   const [error, setError] = useState('')
   const modelId = useConsoleStore((s) => s.currentModelId)
   const eventsConfig = useConsoleStore((s) => s.eventsConfig)
+  const lastLine = eventsConfig.lines[eventsConfig.lines.length - 1]
 
   const filteredPred = useMemo(() => {
     if (!lastPred) return undefined
@@ -221,10 +222,20 @@ export function VideoTab() {
     setTimeout(() => URL.revokeObjectURL(url), 1000)
   }
 
-  function edit(mode: 'line' | 'zone') {
+  function edit(mode: 'line' | 'zone' | 'cue') {
     videoRef.current?.pause()
     setRoi({ enabled: false })
     setEditTool(editTool === mode ? 'none' : mode)
+  }
+
+  function flipEntryDirection() {
+    const lines = eventsConfig.lines
+    if (!lines.length) return
+    const last = lines[lines.length - 1]
+    const next = last.entryDirection === 'negative_to_positive' ? 'positive_to_negative'
+      : last.entryDirection === 'positive_to_negative' ? null
+        : 'negative_to_positive'
+    useConsoleStore.getState().setEventsConfig({ lines: lines.map((l, i) => i === lines.length - 1 ? { ...l, entryDirection: next } : l) })
   }
 
   return (
@@ -246,11 +257,17 @@ export function VideoTab() {
         <NeoButton onClick={() => edit('line')} disabled={running || !videoLoaded}>
           {t(editTool === 'line' ? 'video.finishEdit' : 'video.drawLine')}
         </NeoButton>
+        <NeoButton onClick={flipEntryDirection} disabled={running || !eventsConfig.lines.length}>
+          {t('video.entryDirection')}{lastLine?.entryDirection ? (lastLine.entryDirection === 'negative_to_positive' ? ' →' : ' ←') : ` (${t('video.entryBoth')})`}
+        </NeoButton>
         <NeoButton onClick={() => edit('zone')} disabled={running || !videoLoaded}>
           {t(editTool === 'zone' ? 'video.finishEdit' : 'video.drawZone')}
         </NeoButton>
-        <NeoButton disabled={running || (!eventsConfig.lines.length && !eventsConfig.zones.length)} onClick={() => {
-          useConsoleStore.getState().setEventsConfig({ lines: [], zones: [] })
+        <NeoButton onClick={() => edit('cue')} disabled={running || !videoLoaded}>
+          {t(editTool === 'cue' ? 'video.finishEdit' : 'video.drawCue')}
+        </NeoButton>
+        <NeoButton disabled={running || (!eventsConfig.lines.length && !eventsConfig.zones.length && !(eventsConfig.cues?.length))} onClick={() => {
+          useConsoleStore.getState().setEventsConfig({ lines: [], zones: [], cues: [] })
           setEditTool('none')
         }}>{t('video.clearRules')}</NeoButton>
 
@@ -311,7 +328,7 @@ export function VideoTab() {
       </div>
 
       <div className={styles.meta}>{t('video.analysisHint')}</div>
-      {editTool !== 'none' && <div className={styles.meta}>{t(editTool === 'line' ? 'video.lineHint' : 'video.zoneHint')}</div>}
+      {editTool !== 'none' && <div className={styles.meta}>{t(editTool === 'line' ? 'video.lineHint' : editTool === 'zone' ? 'video.zoneHint' : 'video.cueHint')}</div>}
       {report && <div role="status" className={styles.meta}>
         {t(`video.${report.status}`)} · {formatVideoTime(report.analyzedSeconds)} / {formatVideoTime(report.duration)} · {report.frames} {t('video.frames')} · {report.events.length} {t('video.events')}
       </div>}
@@ -350,7 +367,7 @@ export function VideoTab() {
         />
         <VideoCanvasOverlay videoRef={videoRef} pred={filteredPred} showBBox={osd.bbox} showLabels={osd.labels} showHeatmap={osd.heatmap} />
         <RoiOverlay anchorRef={videoRef} />
-        <EventEditOverlay key={editTool} anchorRef={videoRef} enabled={editTool !== 'none'} mode={editTool === 'zone' ? 'zone' : 'line'} />
+        <EventEditOverlay key={editTool} anchorRef={videoRef} enabled={editTool !== 'none'} mode={editTool === 'none' ? 'line' : editTool} />
         <TelemetryHUD telemetry={filteredPred?.telemetry} />
         {dragOver && <div className={styles.dropHint}>{t('video.dropHint')}</div>}
       </div>

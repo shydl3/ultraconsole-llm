@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import shutil
 import sys
@@ -38,23 +39,37 @@ def prepare(run_dir: Path, request: RunRequest, source: Path, video: dict, data_
 def main():
     parser = argparse.ArgumentParser(description="POI-triggered Qwen3-VL offline analysis")
     sub = parser.add_subparsers(dest="command", required=True)
-    for phase in ("tracking", "understanding", "reprocess"):
+    for phase in ("tracking", "cues", "understanding", "reprocess"):
         sub.add_parser(phase).add_argument("--run-dir", type=Path, required=True)
     analyze = sub.add_parser("analyze")
     analyze.add_argument("--input", type=Path, required=True)
     analyze.add_argument("--config", type=Path, required=True, help="RunRequest JSON (POIs and event definitions)")
     analyze.add_argument("--output", type=Path, default=ROOT / "Rules/data/vlm")
     analyze.add_argument("--dry-run", action="store_true")
+    calibrate = sub.add_parser("calibrate")
+    calibrate.add_argument("--input", type=Path, required=True)
+    calibrate.add_argument("--cue", type=Path, required=True, help="CueDefinition JSON (id + points polygon)")
     args = parser.parse_args()
     if args.command == "tracking":
         from .observations import track
         track(args.run_dir)
+    elif args.command == "cues":
+        from .cues import detect_run
+        detect_run(args.run_dir)
     elif args.command == "understanding":
         from .qwen_worker import understand
         understand(args.run_dir)
     elif args.command == "reprocess":
         from .reprocess import reprocess_run
         print(reprocess_run(args.run_dir))
+    elif args.command == "calibrate":
+        from .contracts import CueDefinition
+        from .cues import calibrate
+        from .media import probe
+        source = args.input.resolve()
+        meta = probe(source)
+        cue = CueDefinition.model_validate(read_json(args.cue))
+        print(json.dumps(calibrate(source, meta, cue), ensure_ascii=False, indent=2))
     else:
         from .media import probe
         from .runner import run

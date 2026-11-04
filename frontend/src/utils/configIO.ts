@@ -1,9 +1,6 @@
 import {
-  apiGetWebhook,
   apiSelectEngine,
-  apiSetWebhook,
   apiUpdateParams,
-  type WebhookConfig,
 } from '../api/client'
 import {
   useConsoleStore,
@@ -25,7 +22,6 @@ export type FullConfig = {
   params: Params
   engine: { device: DeviceType }
   modelId?: string
-  webhook?: WebhookConfig
   // 客户端
   osd: OSDFlags
   roi: RoiState
@@ -33,15 +29,9 @@ export type FullConfig = {
   eventsConfig: EventsConfig
 }
 
-/** 收集当前完整配置（含从后端 fetch 的 webhook） */
+/** 收集当前完整配置 */
 export async function collectConfig(): Promise<FullConfig> {
   const s = useConsoleStore.getState()
-  let webhook: WebhookConfig | undefined
-  try {
-    webhook = await apiGetWebhook()
-  } catch {
-    webhook = undefined
-  }
   return {
     version: VERSION,
     exportedAt: new Date().toISOString(),
@@ -49,7 +39,6 @@ export async function collectConfig(): Promise<FullConfig> {
     params: s.params,
     engine: { device: s.engine.device },
     modelId: s.currentModelId,
-    webhook,
     osd: s.osd,
     roi: s.roi,
     alertConfig: s.alertConfig,
@@ -141,16 +130,6 @@ export async function applyConfig(json: unknown): Promise<ApplyResult> {
       } catch (e) {
         errors.push({ key: 'engine.device', reason: String(e) })
       }
-    }
-  }
-
-  // 服务端：webhook
-  if (isObj(json.webhook)) {
-    try {
-      await apiSetWebhook(json.webhook as WebhookConfig)
-      applied.push('webhook')
-    } catch (e) {
-      errors.push({ key: 'webhook', reason: String(e) })
     }
   }
 

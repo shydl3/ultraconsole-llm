@@ -14,7 +14,7 @@
 .page h2 { font-size: 19px; margin: 0; overflow-wrap: anywhere; }
 .page h3 { font-size: 15px; margin-top: 24px; }
 .muted, .footer { color: var(--fg-2); font-size: 12px; line-height: 1.7; overflow-wrap: anywhere; }
-.link { color: var(--accent-blue); font-size: 13px; text-decoration: none; }
+.link { color: var(--accent-blue); font-size: 13px; text-decoration: none; background: none; border: none; cursor: pointer; padding: 0; font-family: inherit; }
 .tabs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; }
 .tabs button { display: flex; align-items: center; justify-content: space-between; padding: 18px; color: var(--fg-2); }
 .tabs strong { font-size: 24px; font-weight: 500; }

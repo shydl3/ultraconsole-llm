@@ -12,7 +12,7 @@ from fastapi import HTTPException
 from pydantic import Field, field_validator, model_validator
 
 from . import vlm_jobs
-from .vlm_jobs import AnalysisParameters, EventDefinition, Identifier, Poi, RunRequest, StrictModel
+from .vlm_jobs import AnalysisParameters, CueDefinition, EventDefinition, Identifier, Poi, RunRequest, StrictModel
 
 _lock = threading.RLock()
 
@@ -32,6 +32,8 @@ class Rule(EventDefinition):
     def template_only(self):
         if self.poiIds:
             raise ValueError("POI bindings belong to the current analysis, not the rule template")
+        if self.cueIds:
+            raise ValueError("Cue bindings belong to the current analysis, not the rule template")
         return self
 
 
@@ -52,11 +54,13 @@ class Selection(StrictModel):
     id: Identifier
     version: int = Field(ge=1)
     poiIds: list[Identifier] = Field(default_factory=list, max_length=50)
+    cueIds: list[Identifier] = Field(default_factory=list, max_length=20)
 
 
 class ManagedRun(AnalysisParameters):
     videoId: Identifier
     pois: list[Poi] = Field(min_length=1, max_length=50)
+    cues: list[CueDefinition] = Field(default_factory=list, max_length=20)
     selections: list[Selection] = Field(min_length=1, max_length=30)
     revision: int = Field(ge=0)
 
@@ -129,11 +133,15 @@ def resolve(root: Path, request: ManagedRun):
             row = rows.get(selection.id)
             if not row or row["version"] != selection.version or not row["enabled"]:
                 raise HTTPException(409, f"Rule changed, disabled or deleted: {selection.id}")
-            event = {key: row[key] for key in EventDefinition.model_fields}
+            event = {key: row.get(key) for key in EventDefinition.model_fields}
             event["poiIds"] = selection.poiIds
+            event["cueIds"] = selection.cueIds
             applicable = [poi for poi in request.pois if not selection.poiIds or poi.id in selection.poiIds]
             if not any(set(event["triggerKinds"]) & ({"line.cross"} if poi.kind == "line" else {"zone.enter", "zone.leave", "initial_inside"}) for poi in applicable):
                 raise HTTPException(422, f"Rule has no compatible POI/trigger: {row['name']}")
+            cue_ids = {cue.id for cue in request.cues}
+            if set(selection.cueIds) - cue_ids:
+                raise HTTPException(422, f"Rule references an unknown cue: {row['name']}")
             events.append(event)
             snapshots.append({"id": row["id"], "name": row["name"], "version": row["version"], "event": copy.deepcopy(event)})
         values = request.model_dump(exclude={"revision", "selections"})

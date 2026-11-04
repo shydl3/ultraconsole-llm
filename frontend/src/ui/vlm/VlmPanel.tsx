@@ -2,9 +2,10 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { apiVlm, apiVlmMedia } from '../../api/client'
 import type { EventsConfig } from '../../api/contracts'
 import { useT } from '../../i18n'
-import { activeVlm, vlmPois, type VlmResult, type VlmRun } from '../../utils/vlm'
+import { activeVlm, vlmCues, vlmPois, type VlmResult, type VlmRun } from '../../utils/vlm'
 import styles from './VlmPanel.module.css'
 import { EventRulesEditor, type RulesEditorHandle, type RulesEditorState } from './EventRulesEditor'
+import { CueSettings } from './CueSettings'
 import { RuleSnapshotView } from './RuleSnapshotView'
 import { QualityWarnings } from './QualityWarnings'
 import { ModelExplanation } from './ModelExplanation'
@@ -110,7 +111,7 @@ export function VlmPanel({ file, eventsConfig, basicRunning, onBusyChange }: {
       }
       const created = await apiVlm<{ runId: string }>('/runs/from-rules', {
         method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ videoId, pois: vlmPois(eventsConfig), ...selection, ...parameters }),
+        body: JSON.stringify({ videoId, pois: vlmPois(eventsConfig), cues: vlmCues(eventsConfig), ...selection, ...parameters }),
       })
       setRunId(created.runId)
       setRun(null)
@@ -133,10 +134,12 @@ export function VlmPanel({ file, eventsConfig, basicRunning, onBusyChange }: {
   }
 
   const pois = vlmPois(eventsConfig)
+  const cues = vlmCues(eventsConfig).map(c => ({ id: c.id, label: c.label, kind: 'cue' }))
   return <section className={styles.panel} aria-label={t('vlm.title')}>
     <strong>{t('vlm.title')}</strong>
     <div className={styles.hint}>{t('vlm.hint')}</div>
-    <EventRulesEditor ref={rulesRef} pois={pois} onStateChange={setRulesState} />
+    <EventRulesEditor ref={rulesRef} pois={pois} cues={cues} onStateChange={setRulesState} />
+    <CueSettings />
     <AnalysisParameters disabled={isBusy} onChange={setParameters} />
     <div className={styles.toolbar}>
       <button disabled={!file || !parameters || !pois.length || basicRunning || isBusy || rulesState.busy || !rulesState.ready} onClick={() => void start()}>{submitting ? t('vlm.uploading') : rulesState.dirty ? t('eventRules.saveAndStart') : t('vlm.start')}</button>
@@ -166,6 +169,10 @@ export function VlmPanel({ file, eventsConfig, basicRunning, onBusyChange }: {
         }}>#{result.trackId} · {result.triggerSec.toFixed(2)}s · {result.poiId}</button>
         <strong className={styles[result.decision]}>{result.inferenceStatus === 'failed' ? t('vlm.failed') : result.inferenceStatus === 'dry_run' ? t('vlm.dryRun') : t(`vlm.${result.decision}`)}</strong>
       </div>
+      {result.deterministicDecision && <div className={styles.hint}>
+        {t('vlm.deterministic')}: {t(`vlm.${result.deterministicDecision}`)}
+        {result.cueEvidence ? ` · ${t('vlm.cueState')}=${result.cueEvidence.state}${result.cueEvidence.onsetSec != null ? ` @${result.cueEvidence.onsetSec.toFixed(2)}s` : ''}` : ''}
+      </div>}
       <div>{result.description}</div>
       <ModelExplanation videoDescription={result.videoDescription} reason={result.reason} />
       {result.modelDecision && result.modelDecision !== result.decision && <div className={styles.hint}>

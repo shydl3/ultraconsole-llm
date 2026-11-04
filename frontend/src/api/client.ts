@@ -1,6 +1,6 @@
 import type {
-  DeviceType, ModelInfo, NotifyRequest, NotifyResult, Params,
-  SystemStats, WebhookConfig,
+  DeviceType, ModelInfo, Params,
+  SystemStats,
 } from './contracts'
 
 export type * from './contracts'
@@ -72,34 +72,6 @@ export async function apiExportLogsCsv() {
 export async function apiSystemStats() {
   const res = await apiFetch('/api/system/stats')
   return json<SystemStats>(res)
-}
-
-export async function apiGetWebhook() {
-  const res = await apiFetch('/api/webhook')
-  return json<WebhookConfig>(res)
-}
-
-export async function apiSetWebhook(cfg: WebhookConfig) {
-  const res = await apiFetch('/api/webhook', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(cfg),
-  })
-  return json<WebhookConfig>(res)
-}
-
-export async function apiTestWebhook() {
-  const res = await apiFetch('/api/webhook/test', { method: 'POST' })
-  return json<NotifyResult>(res)
-}
-
-export async function apiNotify(req: NotifyRequest) {
-  const res = await apiFetch('/api/notify', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(req),
-  })
-  return json<NotifyResult>(res)
 }
 
 export function wsInferUrl() {

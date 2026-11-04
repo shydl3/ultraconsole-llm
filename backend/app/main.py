@@ -32,8 +32,6 @@ from .state import AppState
 from .system_stats import system_stats
 from .video_api import router as video_router
 from .vlm_api import router as vlm_router
-from .webhook import NotifyRequest, NotifyResult, WebhookConfig
-from .webhook import manager as webhook_manager
 
 _DEFAULT_MODELS_DIR = str(Path(__file__).resolve().parent.parent / "models")
 MODELS_DIR = os.environ.get("ULTRA_MODELS_DIR", _DEFAULT_MODELS_DIR)
@@ -183,59 +181,6 @@ def update_params(req: UpdateParamsRequest) -> Params:
 @app.get("/api/system/stats", response_model=SystemStats)
 def api_system_stats() -> SystemStats:
     return system_stats()
-
-
-# ---- Webhook 配置 + 派发 ----
-
-@app.get("/api/webhook", response_model=WebhookConfig)
-def api_webhook_get() -> WebhookConfig:
-    return webhook_manager().get()
-
-
-@app.post("/api/webhook", response_model=WebhookConfig)
-def api_webhook_set(cfg: WebhookConfig) -> WebhookConfig:
-    saved = webhook_manager().set(cfg)
-    state.logs.append(level="INFO", event="webhook.config", msg="Webhook config updated", fields=saved.model_dump())
-    return saved
-
-
-@app.post("/api/webhook/test", response_model=NotifyResult)
-async def api_webhook_test() -> NotifyResult:
-    req = NotifyRequest(
-        kind="test",
-        level="INFO",
-        title="Webhook 测试",
-        msg="UltraConsole webhook 联通性测试。",
-        fields={"source": "ultraconsole"},
-    )
-    res = await asyncio.to_thread(webhook_manager().dispatch, req)
-    state.logs.append(
-        level="INFO" if res.ok else "WARN",
-        event="webhook.test",
-        msg=f"test ok={res.ok}",
-        fields=res.model_dump(),
-    )
-    return res
-
-
-@app.post("/api/notify", response_model=NotifyResult)
-async def api_notify(req: NotifyRequest) -> NotifyResult:
-    res = await asyncio.to_thread(webhook_manager().dispatch, req)
-    if res.ok:
-        state.logs.append(
-            level="INFO",
-            event="notify.sent",
-            msg=f"{req.kind} -> webhook",
-            fields={"kind": req.kind, "level": req.level, "ref": req.ref, "httpStatus": res.httpStatus},
-        )
-    elif not res.skipped:
-        state.logs.append(
-            level="WARN",
-            event="notify.failed",
-            msg=res.reason or "unknown",
-            fields={"kind": req.kind, "level": req.level, "ref": req.ref},
-        )
-    return res
 
 
 def _decode_image(raw: bytes) -> Image.Image:

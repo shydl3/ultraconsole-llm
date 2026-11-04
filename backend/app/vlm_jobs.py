@@ -14,6 +14,7 @@ if str(RULES_SRC) not in sys.path:
 
 from ultra_rules.vlm.cli import prepare as prepare  # noqa: E402
 from ultra_rules.vlm.contracts import AnalysisParameters as AnalysisParameters  # noqa: E402
+from ultra_rules.vlm.contracts import CueDefinition as CueDefinition  # noqa: E402
 from ultra_rules.vlm.contracts import EventDefinition as EventDefinition  # noqa: E402
 from ultra_rules.vlm.contracts import Identifier as Identifier  # noqa: E402
 from ultra_rules.vlm.contracts import Poi as Poi  # noqa: E402

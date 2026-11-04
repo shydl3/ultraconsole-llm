@@ -69,7 +69,7 @@ export const useConsoleStore = create<ConsoleState>((set, get) => ({
   telemetrySummary: {},
   systemStats: undefined,
 
-  eventsConfig: { lines: [], zones: [] },
+  eventsConfig: { lines: [], zones: [], cues: [] },
   events: [],
   counters: { byLine: {}, byZone: {} },
 

@@ -22,12 +22,17 @@ class Poi(StrictModel):
     kind: Literal["line", "zone"]
     points: list[Point] = Field(min_length=2, max_length=100)
     anchor: Literal["bbox_center", "bbox_bottom_center"] = "bbox_center"
+    # Only meaningful for kind="line". When set, only crossings in this direction
+    # are treated as "entries"; the opposite crossing is a retreat, not a new event.
+    entryDirection: Literal["positive_to_negative", "negative_to_positive"] | None = None
 
     @model_validator(mode="after")
     def geometry(self):
         if self.kind == "line":
             if len(self.points) != 2 or self.points[0] == self.points[1]:
                 raise ValueError("A line needs two distinct endpoints")
+            if self.entryDirection is not None and self.entryDirection not in ("positive_to_negative", "negative_to_positive"):
+                raise ValueError("Invalid entry direction")
         else:
             if self.points[0] == self.points[-1]:
                 self.points = self.points[:-1]
@@ -41,11 +46,44 @@ class Poi(StrictModel):
         return self
 
 
+class CueDefinition(StrictModel):
+    """A deterministic visual cue (e.g. a red LED strip) detected in a drawn ROI."""
+
+    id: Identifier
+    label: str = Field(default="", max_length=200)
+    points: list[Point] = Field(min_length=3, max_length=100)
+    method: Literal["red_mask"] = "red_mask"
+    # Red pixel ratio above this fraction marks the frame as "on".
+    minOnRatio: float = Field(default=0.06, gt=0, le=1)
+    # RGB thresholds: red = (r >= minR) and (r - g >= minRG) and (r - b >= minRB).
+    minR: int = Field(default=120, ge=0, le=255)
+    minRG: int = Field(default=50, ge=0, le=255)
+    minRB: int = Field(default=50, ge=0, le=255)
+    # Temporal persistence: on for >= minOnSec to open an interval, off for >= minOffSec to close.
+    minOnSec: float = Field(default=0.2, ge=0, le=5)
+    minOffSec: float = Field(default=0.2, ge=0, le=5)
+    sampleFps: float = Field(default=10, ge=1, le=30)
+
+    @model_validator(mode="after")
+    def geometry(self):
+        if self.points[0] == self.points[-1]:
+            self.points = self.points[:-1]
+        if len(self.points) < 3:
+            raise ValueError("A cue ROI needs at least three vertices")
+        if any(a == b for a, b in zip(self.points, self.points[1:] + self.points[:1], strict=True)):
+            raise ValueError("A cue ROI cannot contain zero-length edges")
+        area = sum(a[0] * b[1] - b[0] * a[1] for a, b in zip(self.points, self.points[1:] + self.points[:1], strict=True))
+        if abs(area) < 1e-8:
+            raise ValueError("Cue ROI area must be positive")
+        return self
+
+
 class EventDefinition(StrictModel):
     id: Identifier
     description: str = Field(min_length=1, max_length=1500)
     enabled: bool = True
     poiIds: list[Identifier] = Field(default_factory=list, max_length=50)
+    cueIds: list[Identifier] = Field(default_factory=list, max_length=20)
     triggerKinds: list[Trigger] = Field(default_factory=lambda: ["line.cross", "zone.enter", "zone.leave"], min_length=1)
     preSeconds: float = Field(default=4, ge=0, le=60)
     postSeconds: float = Field(default=6, ge=0, le=60)
@@ -78,19 +116,23 @@ class AnalysisParameters(StrictModel):
 class RunRequest(AnalysisParameters):
     videoId: Identifier
     pois: list[Poi] = Field(min_length=1, max_length=50)
+    cues: list[CueDefinition] = Field(default_factory=list, max_length=20)
     events: list[EventDefinition] = Field(min_length=1, max_length=30)
 
     @model_validator(mode="after")
     def references(self):
         ids = [p.id for p in self.pois]
+        cue_ids = [c.id for c in self.cues]
         event_ids = [e.id for e in self.events]
-        if len(set(ids)) != len(ids) or len(set(event_ids)) != len(event_ids):
-            raise ValueError("POI and event IDs must be unique")
+        if len(set(ids)) != len(ids) or len(set(event_ids)) != len(event_ids) or len(set(cue_ids)) != len(cue_ids):
+            raise ValueError("POI, cue and event IDs must be unique")
         if not any(e.enabled for e in self.events):
             raise ValueError("At least one event must be enabled")
         for event in self.events:
             if set(event.poiIds) - set(ids):
                 raise ValueError(f"Unknown POI referenced by {event.id}")
+            if set(event.cueIds) - set(cue_ids):
+                raise ValueError(f"Unknown cue referenced by {event.id}")
         return self
 
 

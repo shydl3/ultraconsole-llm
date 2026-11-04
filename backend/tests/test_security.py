@@ -3,14 +3,7 @@ from dataclasses import replace
 import app.main as main
 import app.security as security
 import pytest
-from app.security import validate_webhook_url
 from fastapi.testclient import TestClient
-
-
-@pytest.mark.parametrize("url", ["http://127.0.0.1/hook", "http://169.254.169.254/latest", "http://[::1]/hook"])
-def test_private_webhook_targets_are_rejected(url: str) -> None:
-    with pytest.raises(ValueError):
-        validate_webhook_url(url)
 
 
 def test_api_token_middleware(monkeypatch: pytest.MonkeyPatch) -> None:

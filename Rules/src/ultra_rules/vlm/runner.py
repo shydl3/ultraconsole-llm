@@ -43,8 +43,11 @@ def run(run_dir: Path):
     with lock_path.open("w") as lock:
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            for phase, python, timeout in (("tracking", config["posePython"], 86400),
-                                           ("understanding", config["qwenPython"], 86400)):
+            phases = [("tracking", config["posePython"], 86400)]
+            if config["request"].get("cues"):
+                phases.append(("cues", config["posePython"], 86400))
+            phases.append(("understanding", config["qwenPython"], 86400))
+            for phase, python, timeout in phases:
                 if cancelled or (run_dir / "cancel.requested").exists():
                     cancelled = True
                     break

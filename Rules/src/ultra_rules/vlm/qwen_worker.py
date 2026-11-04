@@ -4,6 +4,7 @@ import time
 from pathlib import Path
 
 from .contracts import RunRequest
+from .decision import evaluate, retreat_candidate_ids
 from .prompting import PROMPT_VERSION, prompt
 from .results import aggregate_result, apply_answer, complete_json_answer, parse_answer
 from .sampling import build_sample, windows
@@ -77,21 +78,55 @@ class Qwen:
         return raw, stats
 
 
+def _is_entry(candidate, pois):
+    poi = pois.get(candidate.get("poiId"))
+    if poi is not None and poi.kind == "line" and poi.entryDirection and candidate.get("direction") != poi.entryDirection:
+        return False
+    return True
+
+
+def _cue_veto(part, deterministic):
+    if not deterministic:
+        return
+    if deterministic["cueEvidence"].get("state") == "off" and part.get("decision") == "match":
+        part.update(decision="no_match", modelDecision=part.get("modelDecision", "match"))
+        part["qualityWarnings"] = list(dict.fromkeys(part.get("qualityWarnings", []) + ["cue_override_red_off"]))
+        part["reason"] = "确定性检测显示门框红灯未亮起，覆盖模型判断。"
+
+
+def _build_deterministic_evidence(run_dir, config, request, candidate, event, result_id, deterministic):
+    segments = []
+    for index, (start, end) in enumerate(windows(candidate["triggerSec"], event, config["video"]["durationSec"])):
+        sample_id = f"{result_id}-{index}"
+        frames, metadata, manifest = build_sample(run_dir, config, request, candidate, start, end, sample_id)
+        quality = manifest["quality"]
+        quality.update(preContextClipped=candidate["triggerSec"] - event.preSeconds < 0,
+                       postContextClipped=candidate["triggerSec"] + event.postSeconds > config["video"]["durationSec"])
+        write_json(run_dir / "samples" / f"{sample_id}.json", manifest)
+        part = {"window": manifest["window"], "quality": quality,
+                "sampleManifest": f"samples/{sample_id}.json", "previewPath": f"previews/{sample_id}.jpg",
+                "decision": deterministic["decision"], "reason": deterministic["reason"], "modelDecisionConfidence": None}
+        segments.append(part)
+        del frames
+    return segments
+
+
 def understand(run_dir: Path):
     config = read_json(run_dir / "request.json")
     request = RunRequest.model_validate(config["request"])
     candidates = list(iter_jsonl(run_dir / "candidates.jsonl"))
     events = {e.id: e for e in request.events if e.enabled}
-    total = sum(len(c["eventDefinitionIds"]) for c in candidates)
+    pois = {p.id: p for p in request.pois}
+    retreat_ids = retreat_candidate_ids(candidates)
+    entry_candidates = [c for c in candidates if c["candidateId"] not in retreat_ids and _is_entry(c, pois)]
+    total = sum(len(c["eventDefinitionIds"]) for c in entry_candidates)
     progress(run_dir, stage="understanding", totalRequests=total, completedRequests=0, failedRequests=0)
     if not total:
         write_json(run_dir / "summary.json", {"resultCount": 0, "failedRequests": 0, "reason": "no_candidates", "dryRun": request.dryRun})
         return
-    model = None if request.dryRun else Qwen(config["modelPath"])
-    if model:
-        write_json(run_dir / "runtime.json", model.runtime)
+    model = None
     done, failed, counts = 0, 0, {"match": 0, "no_match": 0, "uncertain": 0}
-    for candidate in candidates:
+    for candidate in entry_candidates:
         for event_id in candidate["eventDefinitionIds"]:
             event = events[event_id]
             result_id = f"{candidate['candidateId']}-{event_id}"
@@ -100,56 +135,76 @@ def understand(run_dir: Path):
                       "confidenceType": "model_self_reported_uncalibrated", "modelDecisionConfidence": None,
                       "inferenceStatus": "succeeded", "decision": "uncertain", "segments": []}
             try:
-                for index, (start, end) in enumerate(windows(candidate["triggerSec"], event, config["video"]["durationSec"])):
-                    sample_id = f"{result_id}-{index}"
-                    frames, metadata, manifest = build_sample(run_dir, config, request, candidate, start, end, sample_id)
-                    quality = manifest["quality"]
-                    quality.update(preContextClipped=candidate["triggerSec"] - event.preSeconds < 0,
-                                   postContextClipped=candidate["triggerSec"] + event.postSeconds > config["video"]["durationSec"])
-                    write_json(run_dir / "samples" / f"{sample_id}.json", manifest)
-                    part = {"window": manifest["window"], "quality": quality,
-                            "sampleManifest": f"samples/{sample_id}.json", "previewPath": f"previews/{sample_id}.jpg"}
-                    output["segments"].append(part)
+                deterministic = evaluate(candidate, event, request, run_dir, candidates)
+                if deterministic is not None and not deterministic["reviewRequired"] and not request.dryRun:
+                    output["segments"] = _build_deterministic_evidence(run_dir, config, request, candidate, event, result_id, deterministic)
+                    output.update(deterministicDecision=deterministic["decision"],
+                                  cueEvidence=deterministic["cueEvidence"],
+                                  decision=deterministic["decision"], reason=deterministic["reason"],
+                                  modelDecision=deterministic["decision"], inferenceStatus="deterministic")
+                    if output["segments"]:
+                        sel = output["segments"][0]
+                        for key in ("window", "quality", "previewPath", "sampleManifest"):
+                            output[key] = sel[key]
+                else:
+                    cue_evidence = deterministic["cueEvidence"] if deterministic else None
+                    for index, (start, end) in enumerate(windows(candidate["triggerSec"], event, config["video"]["durationSec"])):
+                        sample_id = f"{result_id}-{index}"
+                        frames, metadata, manifest = build_sample(run_dir, config, request, candidate, start, end, sample_id)
+                        quality = manifest["quality"]
+                        quality.update(preContextClipped=candidate["triggerSec"] - event.preSeconds < 0,
+                                       postContextClipped=candidate["triggerSec"] + event.postSeconds > config["video"]["durationSec"])
+                        write_json(run_dir / "samples" / f"{sample_id}.json", manifest)
+                        part = {"window": manifest["window"], "quality": quality,
+                                "sampleManifest": f"samples/{sample_id}.json", "previewPath": f"previews/{sample_id}.jpg"}
+                        output["segments"].append(part)
+                        if request.dryRun:
+                            part.update(decision="uncertain", reason="仅抽帧预览，未调用模型", modelDecisionConfidence=None, downgradeReasons=[])
+                        else:
+                            if model is None:
+                                model = Qwen(config["modelPath"])
+                                write_json(run_dir / "runtime.json", model.runtime)
+                            question = prompt(candidate, event, manifest, cue_evidence=cue_evidence)
+                            raw_dir = run_dir / "raw"
+                            raw_dir.mkdir(exist_ok=True)
+                            part["requestFingerprint"] = digest({"version": VERSION, "prompt": question, "manifest": manifest,
+                                                                 "model": config["modelPath"], "maxTokens": request.maxNewTokens,
+                                                                 "runtime": model.runtime, "video": config["video"]["sha256"]})
+                            (raw_dir / f"{sample_id}.prompt.txt").write_text(question, encoding="utf-8")
+                            last_error = None
+                            attempts = []
+                            for attempt in range(2):
+                                (raw_dir / f"{sample_id}-{attempt}.prompt.txt").write_text(question, encoding="utf-8")
+                                raw, stats = model.infer(frames, metadata, question, request.maxNewTokens)
+                                raw_path = f"raw/{sample_id}-{attempt}.txt"
+                                (run_dir / raw_path).write_text(raw, encoding="utf-8")
+                                attempts.append({"rawOutputPath": raw_path, **stats})
+                                try:
+                                    if stats["generationTruncated"] and not complete_json_answer(raw):
+                                        raise ValueError("generation_truncated_or_timeout")
+                                    answer = parse_answer(raw, start, end, len(event.criteria or [event.description]), check_timestamps=False)
+                                    if not answer.videoDescription or not answer.videoDescription.strip():
+                                        raise ValueError("missing_video_description")
+                                    apply_answer(part, answer)
+                                    _cue_veto(part, deterministic)
+                                    part["rawOutputPath"] = raw_path
+                                    last_error = None
+                                    break
+                                except (ValueError, TypeError) as exc:
+                                    last_error = exc
+                                    attempts[-1]["parseError"] = str(exc)
+                                    question = prompt(candidate, event, manifest, retry=True, cue_evidence=cue_evidence)
+                            part["attempts"] = attempts
+                            if last_error:
+                                write_json(run_dir / "samples" / f"{sample_id}-failure.json", {"attempts": attempts, "error": str(last_error)})
+                                raise ValueError(f"invalid_output: {last_error}")
+                        del frames
+                    if deterministic is not None:
+                        output["deterministicDecision"] = deterministic["decision"]
+                        output["cueEvidence"] = deterministic["cueEvidence"]
+                    aggregate_result(output)
                     if request.dryRun:
-                        part.update(decision="uncertain", reason="仅抽帧预览，未调用模型", modelDecisionConfidence=None, downgradeReasons=[])
-                    else:
-                        question = prompt(candidate, event, manifest)
-                        raw_dir = run_dir / "raw"
-                        raw_dir.mkdir(exist_ok=True)
-                        part["requestFingerprint"] = digest({"version": VERSION, "prompt": question, "manifest": manifest,
-                                                             "model": config["modelPath"], "maxTokens": request.maxNewTokens,
-                                                             "runtime": model.runtime, "video": config["video"]["sha256"]})
-                        (raw_dir / f"{sample_id}.prompt.txt").write_text(question, encoding="utf-8")
-                        last_error = None
-                        attempts = []
-                        for attempt in range(2):
-                            (raw_dir / f"{sample_id}-{attempt}.prompt.txt").write_text(question, encoding="utf-8")
-                            raw, stats = model.infer(frames, metadata, question, request.maxNewTokens)
-                            raw_path = f"raw/{sample_id}-{attempt}.txt"
-                            (run_dir / raw_path).write_text(raw, encoding="utf-8")
-                            attempts.append({"rawOutputPath": raw_path, **stats})
-                            try:
-                                if stats["generationTruncated"] and not complete_json_answer(raw):
-                                    raise ValueError("generation_truncated_or_timeout")
-                                answer = parse_answer(raw, start, end, len(event.criteria or [event.description]), check_timestamps=False)
-                                if not answer.videoDescription or not answer.videoDescription.strip():
-                                    raise ValueError("missing_video_description")
-                                apply_answer(part, answer)
-                                part["rawOutputPath"] = raw_path
-                                last_error = None
-                                break
-                            except (ValueError, TypeError) as exc:
-                                last_error = exc
-                                attempts[-1]["parseError"] = str(exc)
-                                question = prompt(candidate, event, manifest, retry=True)
-                        part["attempts"] = attempts
-                        if last_error:
-                            write_json(run_dir / "samples" / f"{sample_id}-failure.json", {"attempts": attempts, "error": str(last_error)})
-                            raise ValueError(f"invalid_output: {last_error}")
-                    del frames
-                aggregate_result(output)
-                if request.dryRun:
-                    output["inferenceStatus"] = "dry_run"
+                        output["inferenceStatus"] = "dry_run"
                 counts[output["decision"]] += 1
             except Exception as exc:
                 failed += 1

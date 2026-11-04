@@ -42,9 +42,14 @@ export type SystemStats = {
 }
 
 export type RoiPointXY = { x: number; y: number }
-export type CountingLine = { id: string; name?: string; a: RoiPointXY; b: RoiPointXY }
+export type CountingLine = { id: string; name?: string; a: RoiPointXY; b: RoiPointXY; entryDirection?: 'positive_to_negative' | 'negative_to_positive' | null }
 export type CountingZone = { id: string; name?: string; polygon: RoiPointXY[] }
-export type EventsConfig = { lines: CountingLine[]; zones: CountingZone[]; classes?: string[] }
+export type SignalRegion = {
+  id: string; name?: string; polygon: RoiPointXY[]
+  minOnRatio?: number; minR?: number; minRG?: number; minRB?: number
+  minOnSec?: number; minOffSec?: number; sampleFps?: number
+}
+export type EventsConfig = { lines: CountingLine[]; zones: CountingZone[]; cues?: SignalRegion[]; classes?: string[] }
 export type EventEntry = {
   source?: 'video'
   mediaTime?: number
@@ -66,25 +71,3 @@ export type AlertConfig = { enabled: boolean; targetClass?: string; minFrames: n
 export type RoiPoint = { x: number; y: number }
 export type RoiMode = 'rect' | 'poly'
 export type RoiState = { enabled: boolean; polygon: RoiPoint[]; closed: boolean; applyFilter: boolean; mode: RoiMode }
-
-export type WebhookFormat = 'generic' | 'dingtalk' | 'wecom' | 'feishu' | 'slack'
-export type NotifyKind = 'alert' | 'line.cross' | 'zone.enter' | 'zone.leave' | 'test'
-export type LevelType = 'INFO' | 'WARN' | 'ERROR'
-export type WebhookConfig = {
-  enabled: boolean
-  url: string
-  format: WebhookFormat
-  minLevel: LevelType
-  cooldownSec: number
-  includeKinds: NotifyKind[]
-  timeoutSec: number
-}
-export type NotifyResult = { ok: boolean; skipped?: boolean; reason?: string; httpStatus?: number }
-export type NotifyRequest = {
-  kind: NotifyKind
-  level?: LevelType
-  title: string
-  msg: string
-  ref?: string
-  fields?: Record<string, unknown>
-}

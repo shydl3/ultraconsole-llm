@@ -88,6 +88,56 @@ def test_run_uses_backend_definition_and_keeps_snapshot_after_edit_delete(client
     assert client.post('/api/vlm/runs/from-rules', json=start_payload(library)).status_code == 409
 
 
+def test_cue_binding_flows_to_run_and_unknown_cue_rejected(client, monkeypatch):
+    library = save(client, [rule()]).json()
+    folder = api.DATA_ROOT / 'uploads/clip'
+    folder.mkdir(parents=True)
+    jobs.write_json(folder / 'video.json', {'fileName': 'clip.mp4', 'sourceName': 'source.mp4', 'sha256': 'abc'})
+    (folder / 'source.mp4').write_bytes(b'test')
+
+    def launch(run_dir, _python):
+        status = jobs.read_json(run_dir / 'status.json')
+        jobs.write_json(run_dir / 'status.json', {**status, 'state': 'completed'})
+    monkeypatch.setattr(jobs, 'launch', launch)
+
+    payload = start_payload(library)
+    payload['selections'][0]['cueIds'] = ['red']
+    payload['cues'] = [{'id': 'red', 'points': [[.2, .2], [.8, .2], [.8, .8], [.2, .8]]}]
+    response = client.post('/api/vlm/runs/from-rules', json=payload)
+    assert response.status_code == 200, response.text
+    request = jobs.read_json(api.DATA_ROOT / f'runs/{response.json()["runId"]}/request.json')['request']
+    assert request['events'][0]['cueIds'] == ['red']
+    assert request['cues'][0]['id'] == 'red'
+
+    payload = start_payload(library)
+    payload['selections'][0]['cueIds'] = ['missing']
+    assert client.post('/api/vlm/runs/from-rules', json=payload).status_code == 422
+
+
+def test_old_rule_without_cueids_still_resolves(client, monkeypatch):
+    old_rule = {'id': 'old-rule', 'name': '旧规则', 'description': '是否异常', 'enabled': True,
+                'poiIds': [], 'triggerKinds': ['line.cross'], 'preSeconds': 4, 'postSeconds': 6,
+                'criteria': [], 'uncertainWhen': [], 'version': 1, 'createdAt': 0, 'updatedAt': 0}
+    jobs.write_json(api.DATA_ROOT / 'event-rules.json', {'revision': 1, 'rules': [old_rule]})
+    folder = api.DATA_ROOT / 'uploads/clip'
+    folder.mkdir(parents=True)
+    jobs.write_json(folder / 'video.json', {'fileName': 'clip.mp4', 'sourceName': 'source.mp4', 'sha256': 'abc'})
+    (folder / 'source.mp4').write_bytes(b'test')
+
+    def launch(run_dir, _python):
+        status = jobs.read_json(run_dir / 'status.json')
+        jobs.write_json(run_dir / 'status.json', {**status, 'state': 'completed'})
+    monkeypatch.setattr(jobs, 'launch', launch)
+
+    payload = {'videoId': 'clip', 'revision': 1,
+               'selections': [{'id': 'old-rule', 'version': 1, 'poiIds': ['gate'], 'cueIds': []}],
+               'pois': [{'id': 'gate', 'kind': 'line', 'points': [[.1, .5], [.9, .5]]}]}
+    response = client.post('/api/vlm/runs/from-rules', json=payload)
+    assert response.status_code == 200, response.text
+    request = jobs.read_json(api.DATA_ROOT / f'runs/{response.json()["runId"]}/request.json')['request']
+    assert request['events'][0]['cueIds'] == []
+
+
 def test_invalid_bindings_disabled_and_oversized_selection(client):
     library = save(client, [rule()]).json()
     payload = start_payload(library)
