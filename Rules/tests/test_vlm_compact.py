@@ -24,7 +24,8 @@ def test_compact_answer_keeps_model_decision_without_fabricating_evidence(decisi
     apply_answer(part, answer)
     assert part["decision"] == decision
     assert part["conditions"] == part["evidence"] == part["modelEvidence"] == []
-    assert part["qualityWarnings"] == []
+    # No conditions -> conjunction falls back to the model decision and reports why.
+    assert part["qualityWarnings"] == ["conditions_unavailable"]
     assert part["videoDescription"] is None
 
 
@@ -52,12 +53,13 @@ def test_long_description_survives_parsing_and_selects_the_same_segment_as_the_d
 ])
 def test_legacy_optional_fields_cannot_discard_valid_decision(conditions):
     answer = parse_answer(json.dumps({**core(), "conditions": conditions, "evidence": [{"timeSec": "bad"}]}), 0, 8, 4)
+    # An incomplete, duplicated, out-of-range or null condition set is unusable as a
+    # whole: it is dropped (not padded) so the decision falls back to the model's own.
     assert answer.decision == "match"
-    assert len(answer.conditions) == 4
-    assert answer.conditions[2].value == answer.conditions[3].value == "unknown"
-    if conditions and len(conditions) == 2 and conditions[0]["index"] == conditions[1]["index"]:
-        assert answer.conditions[0].value == "unknown"
+    assert answer.conditions == []
     assert answer.evidence == []
+    assert "conditions_unavailable" in answer._parse_warnings
+    # The malformed evidence citation is still flagged as an incomplete auxiliary field.
     assert "auxiliary_output_incomplete" in answer._parse_warnings
 
 
@@ -97,20 +99,20 @@ def test_prompt_requests_grounded_description_and_current_event_on_both_attempts
     candidate = {"trackId": 32, "triggerKind": "zone.enter", "triggerSec": 12.8, "direction": None}
     manifest = {"observations": [], "window": {"startSec": 8.8, "endSec": 15.72}, "quality": {}}
     question = prompt(candidate, event, manifest)
-    assert "100到220字" in question
     assert "人工叠加标注" in question
-    assert "不要照抄判定条件" in question
-    assert "不要输出conditions、evidence" in question
-    assert "推挤" not in question and "强行通过" not in question
-    assert '"conditions":' not in question and '"evidence":' not in question
+    assert "默认否认" in question
+    # Only the current event's criteria are injected; unrelated events never leak in.
     assert "门框红灯" in question and "目标继续通行" in question
-    assert '"videoDescription":' in question
+    assert "推挤" not in question and "强行通过" not in question
+    # v6 requires structured per-condition verdicts with grounded evidence times.
+    assert '"conditions":' in question and "evidenceTimeSec" in question
+    assert '"videoDescription"' in question
     assert "不能编造时间" in question
-    assert "不能把触发POI的时间" in question
+    assert "triggerSec" in question
     retry = prompt(candidate, event, manifest, retry=True)
     assert "具体的视频过程描述" in retry
-    assert "60个汉字" not in retry and "30个汉字" not in retry
-    assert PROMPT_VERSION == "target-event-described-json-v5"
+    assert "conditions数组覆盖全部判定条件" in retry
+    assert PROMPT_VERSION == "target-event-described-json-v6"
 
 
 @pytest.mark.parametrize("mode", ["described", "legacy", "retry", "missing_description", "truncated", "complete_without_eos"])
@@ -149,6 +151,7 @@ def test_worker_compact_flow_preserves_poi_seek_metadata(tmp_path, monkeypatch, 
 
     def build_sample(_dir, _config, _request, _candidate, start, end, _sample_id):
         return None, {}, {"window": {"startSec": start, "endSec": end}, "observations": [],
+                          "sampleTimesSeconds": [], "sourceFrameIndices": [],
                           "quality": {"targetVisibleFraction": .3, "uniqueFrameCount": 17, "medianTargetHeightPx": 90}}
 
     monkeypatch.setattr(qwen_worker, "Qwen", FakeQwen)

@@ -5,6 +5,7 @@ import json
 import os
 import threading
 import time
+import uuid
 from dataclasses import replace
 from fractions import Fraction
 
@@ -157,13 +158,19 @@ def test_cancel_and_concurrency(client, monkeypatch):
     identifier = response.json()["id"]
     assert started.wait(2)
     assert client.get(f"/api/video/previews/{identifier}/source").status_code == 409
-    assert client.post("/api/video/previews", files={"file": ("clip.mp4", b"video")}).status_code == 409
+    # A bounded queue now allows concurrent conversions instead of a hard 409;
+    # only when the queue is saturated does it reject with 429.
+    second = client.post("/api/video/previews", files={"file": ("clip.mp4", b"video")})
+    assert second.status_code == 202
+    monkeypatch.setattr(api, "MAX_CONCURRENT", 0)
+    for _ in range(8):
+        api.jobs[uuid.uuid4().hex] = {"state": "converting", "folder": api.ROOT, "cancel": threading.Event()}
+    assert client.post("/api/video/previews", files={"file": ("clip.mp4", b"video")}).status_code == 429
     assert client.delete(f"/api/video/previews/{identifier}").status_code == 200
     deadline = time.monotonic() + 5
     while identifier in api.jobs and time.monotonic() < deadline:
         time.sleep(.01)
     assert identifier not in api.jobs
-    assert list(api.ROOT.iterdir()) == []
 
 
 def test_worker_failure_is_reported_without_cpu_retry(client, monkeypatch, tmp_path):

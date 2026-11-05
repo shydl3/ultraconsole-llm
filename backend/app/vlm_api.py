@@ -9,7 +9,7 @@ import time
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, Query, UploadFile
+from fastapi import APIRouter, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse
 
 from . import event_rules, vlm_jobs
@@ -17,8 +17,13 @@ from .vlm_jobs import TERMINAL, AnalysisParameters, RunRequest, iter_jsonl, prep
 
 ROOT = Path(__file__).resolve().parents[2]
 DATA_ROOT = Path(os.environ.get("VLM_DATA_ROOT", str(ROOT / "Rules/data/vlm"))).resolve()
-MAX_BYTES = int(os.environ.get("VLM_MAX_UPLOAD_BYTES", str(1024 * 1024 * 1024)))
+MAX_BYTES = int(os.environ.get("VLM_MAX_UPLOAD_BYTES", str(8 * 1024**3)))
+MAX_DURATION_SEC = float(os.environ.get("VLM_MAX_DURATION_SEC", "7200"))
+CHUNK_SIZE = 16 * 1024 * 1024
+ALLOWED_SUFFIXES = {".mp4", ".mov", ".mkv", ".avi", ".m4v", ".webm"}
 router = APIRouter(prefix="/api/vlm", tags=["vlm"])
+# In-flight chunked uploads: uploadId -> {dest, suffix, filename, received, size}
+_pending_uploads: dict[str, dict] = {}
 
 
 def directory(kind: str, identifier: str):
@@ -53,10 +58,29 @@ def save_event_rules(request: event_rules.Batch):
     return event_rules.save(DATA_ROOT, request)
 
 
+def _finalize_upload(dest: Path, source: Path, video_id: str, filename: str, size: int, sha: str):
+    """Probe, validate limits and persist video.json for a fully received file."""
+    try:
+        from ultra_rules.vlm.media import probe
+
+        meta = probe(source)
+    except Exception as exc:
+        raise HTTPException(400, f"Cannot decode video: {exc}") from exc
+    if meta["durationSec"] > MAX_DURATION_SEC:
+        raise HTTPException(400, f"Video exceeds {MAX_DURATION_SEC:.0f}s analysis limit")
+    if meta["width"] * meta["height"] > 33_177_600:
+        raise HTTPException(400, "Video exceeds 8K analysis limit")
+    meta.update(videoId=video_id, fileName=Path(filename or "video").name,
+                sha256=sha, sizeBytes=size, sourceName=source.name)
+    write_json(dest / "video.json", meta)
+    return meta
+
+
 @router.post("/videos")
 def upload(file: UploadFile):
+    """Single-request upload kept for small files; large files use the chunked API."""
     suffix = Path(file.filename or "").suffix.lower()
-    if suffix not in {".mp4", ".mov", ".mkv", ".avi", ".m4v", ".webm"}:
+    if suffix not in ALLOWED_SUFFIXES:
         raise HTTPException(400, "Unsupported video extension")
     video_id = uuid.uuid4().hex
     dest = DATA_ROOT / "uploads" / video_id
@@ -71,23 +95,91 @@ def upload(file: UploadFile):
                     raise HTTPException(413, "Video exceeds configured upload limit")
                 h.update(chunk)
                 output.write(chunk)
-        try:
-            from ultra_rules.vlm.media import probe
-
-            meta = probe(source)
-        except Exception as exc:
-            raise HTTPException(400, f"Cannot decode video: {exc}") from exc
-        if meta["durationSec"] > 7200 or meta["width"] * meta["height"] > 33_177_600:
-            raise HTTPException(400, "Video exceeds 2 hour / 8K analysis limit")
-        meta.update(videoId=video_id, fileName=Path(file.filename or "video").name, sha256=h.hexdigest(), sizeBytes=size,
-                    sourceName=source.name)
-        write_json(dest / "video.json", meta)
-        return meta
+        return _finalize_upload(dest, source, video_id, file.filename or "video", size, h.hexdigest())
     except Exception:
-        shutil.rmtree(dest)
+        shutil.rmtree(dest, ignore_errors=True)
         raise
     finally:
         file.file.close()
+
+
+@router.post("/videos/init")
+async def upload_init(request: Request):
+    """Start a chunked upload; returns uploadId and the expected chunk size."""
+    body = await request.json()
+    filename = str(body.get("filename") or "video")
+    suffix = Path(filename).suffix.lower()
+    if suffix not in ALLOWED_SUFFIXES:
+        raise HTTPException(400, "Unsupported video extension")
+    total = int(body.get("size") or 0)
+    if total <= 0:
+        raise HTTPException(400, "Size must be positive")
+    if total > MAX_BYTES:
+        raise HTTPException(413, "Video exceeds configured upload limit")
+    upload_id = uuid.uuid4().hex
+    dest = DATA_ROOT / "uploads" / upload_id
+    (dest / "parts").mkdir(parents=True)
+    _pending_uploads[upload_id] = {"dest": dest, "suffix": suffix, "filename": filename,
+                                   "received": set(), "size": 0, "created": time.time()}
+    return {"uploadId": upload_id, "chunkSize": CHUNK_SIZE}
+
+
+@router.put("/videos/{upload_id}/parts/{index}")
+async def upload_part(upload_id: str, index: int, request: Request):
+    """Receive one byte-chunk; chunks may arrive in any order."""
+    state = _pending_uploads.get(upload_id)
+    if state is None:
+        raise HTTPException(404, "Unknown or expired upload")
+    if index < 0:
+        raise HTTPException(400, "Invalid part index")
+    part = state["dest"] / "parts" / f"{index:06d}.bin"
+    data = await request.body()
+    if not data:
+        raise HTTPException(400, "Empty part")
+    state["size"] += len(data) - (part.stat().st_size if part.exists() else 0)
+    if state["size"] > MAX_BYTES:
+        shutil.rmtree(state["dest"], ignore_errors=True)
+        _pending_uploads.pop(upload_id, None)
+        raise HTTPException(413, "Video exceeds configured upload limit")
+    part.write_bytes(data)
+    state["received"].add(index)
+    return {"received": index, "totalBytes": state["size"]}
+
+
+@router.post("/videos/{upload_id}/complete")
+def upload_complete(upload_id: str):
+    """Assemble parts, verify continuity, probe and register the video."""
+    state = _pending_uploads.pop(upload_id, None)
+    if state is None:
+        raise HTTPException(404, "Unknown or expired upload")
+    dest, parts_dir = state["dest"], state["dest"] / "parts"
+    try:
+        received = sorted(state["received"])
+        if not received or received != list(range(len(received))):
+            raise HTTPException(400, f"Missing parts; received {len(received)} non-contiguous")
+        source = dest / f"source{state['suffix']}"
+        size, h = 0, hashlib.sha256()
+        with source.open("wb") as output:
+            for index in received:
+                chunk = (parts_dir / f"{index:06d}.bin").read_bytes()
+                size += len(chunk)
+                h.update(chunk)
+                output.write(chunk)
+        return _finalize_upload(dest, source, upload_id, state["filename"], size, h.hexdigest())
+    except Exception:
+        shutil.rmtree(dest, ignore_errors=True)
+        raise
+    finally:
+        shutil.rmtree(parts_dir, ignore_errors=True)
+
+
+@router.delete("/videos/{upload_id}")
+def upload_abort(upload_id: str):
+    """Cancel an in-flight chunked upload and remove its parts."""
+    state = _pending_uploads.pop(upload_id, None)
+    if state is not None:
+        shutil.rmtree(state["dest"], ignore_errors=True)
+    return {"ok": True}
 
 
 @router.get("/videos/{video_id}/source")

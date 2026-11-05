@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { apiListModels, apiSelectEngine, apiSelectModel, apiUpdateParams } from '../../api/client'
+import { apiGetState, apiListModels, apiSelectEngine, apiSelectModel, apiUpdateParams } from '../../api/client'
 import { useT } from '../../i18n'
 import { useConsoleStore } from '../../store/useConsoleStore'
 import type { Params } from '../../api/contracts'
@@ -19,10 +19,21 @@ export function ControlPanel() {
   const [busy, setBusy] = useState(false)
 
   useEffect(() => {
-    apiListModels()
-      .then((ms) => setModels(ms))
-      .catch((e) => pushLog({ ts: Date.now() / 1000, level: 'ERROR', event: 'models.list', msg: String(e), fields: {} }))
-  }, [pushLog, setModels])
+    let active = true
+    Promise.all([apiListModels(), apiGetState()])
+      .then(([ms, snapshot]) => {
+        if (!active) return
+        setModels(ms)
+        setEngine(snapshot.engine)
+        if (snapshot.model) setCurrentModel(snapshot.model)
+      })
+      .catch((e) => {
+        if (active) pushLog({ ts: Date.now() / 1000, level: 'ERROR', event: 'models.list', msg: String(e), fields: {} })
+      })
+    return () => {
+      active = false
+    }
+  }, [pushLog, setModels, setEngine, setCurrentModel])
 
   const classOptions = useMemo(() => Array.from(new Set(classes)).sort(), [classes])
 

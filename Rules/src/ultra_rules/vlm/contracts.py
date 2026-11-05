@@ -144,6 +144,8 @@ class Evidence(StrictModel):
 class ConditionCheck(StrictModel):
     index: int = Field(ge=0, le=9)
     value: Literal["yes", "no", "unknown"]
+    # Source-video second of the frame that supports this judgement; null when unknown.
+    evidenceTimeSec: float | None = Field(default=None, ge=0)
 
 
 class ModelAnswer(StrictModel):
@@ -152,7 +154,9 @@ class ModelAnswer(StrictModel):
     reason: str = Field(min_length=1, max_length=1500)
     # Optional for historical answers; new inference requires a visible-content description.
     videoDescription: str | None = Field(default=None, min_length=1, max_length=3000)
-    # Optional legacy fields.
     evidence: list[Evidence] = Field(default_factory=list, max_length=8)
+    # Structured per-condition verdicts: the primary output of new inference. The
+    # final decision is derived from these by conjunction; empty for legacy answers,
+    # which then fall back to trusting the model's own decision.
     conditions: list[ConditionCheck] = Field(default_factory=list, max_length=10)
     _parse_warnings: list[str] = PrivateAttr(default_factory=list)

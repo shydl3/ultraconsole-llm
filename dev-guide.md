@@ -22,9 +22,14 @@
 - **把“门框红灯是否亮起”这类可明确测量的信号，改成用传统图像算法（CV）直接检测**，不再让大模型“看”一个在缩略图里只有一两个像素的红灯——这消除了最大的一类误报（模型把规则文字复述成“红灯亮起”）。
 - **把判定改成“确定性优先 + 大模型兜底”**：能用轨迹和红灯状态算清楚的，直接算；算不清楚的才交给大模型复核。
 
+**本轮又做完两件事：**
+
+- **把大模型回答改成“逐条件、带证据时间”的结构化输出**：模型对每个判定条件给“是 / 否 / 不确定 + 证据画面秒数”，由代码按“所有条件都满足才算发生”的合取逻辑**计算**最终结论，不再直接采信模型的一段话；提示词同时改为**“默认否认”**（看不清就不算发生）并**删掉衣着外貌等无关描述**。GPU 实测：描述更短更聚焦、逐条件证据可点击回放。
+- **控制台启动即就绪**：后端启动自动选 GPU（CUDA）并加载姿态模型 `yolo11m-pose.pt`，前端无需再手动选设备 / 模型（下拉与按钮仍保留可手动切换）。
+
 **接下来要做的（按优先级）：**
 
-- **P1**：让大模型“看得更清楚”（高分辨率裁剪、围绕红灯亮起时刻抽帧）、把回答改成“逐条件、带证据的结构化输出”、并评估更大更强的模型。
+- **P1（剩余）**：让大模型“看得更清楚”（高分辨率裁剪、围绕红灯亮起时刻抽帧）、并评估更大更强的模型（4B/8B、self-consistency）。
 - **P2**：建立**人工标注的评测集和量化指标**（准确率、召回率、误报率），用数据证明“是否达到上线标准”，并接入人工复核闭环。
 
 详细方案见第 6 节。这份文档的目标是：让任何一位开发者（或 AI）接手后，不需要重新摸索，就能按路线图继续推进。
@@ -74,8 +79,8 @@ runner.py 依次执行三个子进程阶段：
 - `Rules/src/ultra_rules/vlm/qwen_worker.py` 的 `understand()` 对每条候选：
   - 若规则绑定了**信号区（cueIds）** → 先走 `decision.py` 的**确定性判定**；
   - 确定性给出 `match` / `no_match` → 直接出结果，不调用大模型；
-  - 确定性无法判定（`uncertain`）→ 交给 VLM 复核（现有采样 + 提示词）。
-- `Rules/src/ultra_rules/vlm/results.py` 负责解析模型回答与聚合（当前版本 `model-decision-v4`：保留模型结论，质量警告仅提示）。
+  - 确定性无法判定（`uncertain`）→ 交给 VLM 复核（结构化逐条件输出 + 默认否认提示词，见 6.2）。
+- `Rules/src/ultra_rules/vlm/results.py` 负责解析模型回答与聚合（当前版本 `model-decision-v5`）：解析模型逐条件输出 `conditions`（`index / status(yes|no|unknown) / evidenceTimeSec`），由 `decision_from_conditions` 按**合取真值表**计算 decision（任一 `no`→`no_match`；全 `yes`→`match`；否则 `uncertain`），模型自由文本结论降级为 `modelDecision` 仅供对照；证据时间做校验（越窗 / 约等于 `triggerSec` / 缺失 → 该条件降级 `unknown` 并记警告）；`conditions` 缺失或数量不符则回退采信 `modelDecision`（保持 v4 行为）。质量项（可见度 / 帧数 / 目标过小）仅作 advisory 警告，不否决。
 
 ---
 
@@ -89,7 +94,10 @@ runner.py 依次执行三个子进程阶段：
 | P0 边界：入口方向 | 计数线 `entryDirection`，翻转只作用于最新一条线 | ✅ 已完成 |
 | 收敛调整 | 仅移除 Webhook；保留实时控制台与基础分析；记录管理改为单页内切换 | ✅ 已完成 |
 | Schema 迁移容错 | `event-rules.json` 旧记录缺新字段时用 `.get` 读取 | ✅ 已完成 |
-| P1（证据 / 提示词 / 模型） | 高分辨率 ROI、结构化输出、更强模型等 | ⬜ 待做 |
+| P1② 结构化条件输出 | 模型逐条件 `status + evidenceTimeSec`，`results.py` 合取真值表算 decision（`model-decision-v5`）；前端逐条件证据展示 | ✅ 已完成 |
+| P1③ 默认否认提示词 | 去衣着/外貌、默认否认、3 个 few-shot、输出含 conditions（`target-event-described-json-v6`） | ✅ 已完成 |
+| 控制台启动自选设备/模型 | 后端 lifespan 自动选 CUDA（不可用回退 CPU）+ 加载 `yolo11m-pose.pt`；`GET /api/state` 回显；前端下拉/按钮仍可手动切换 | ✅ 已完成 |
+| P1（其余：证据 / 模型） | 高分辨率 ROI 抽帧、4B/8B、self-consistency、置信度校准 | ⬜ 待做 |
 | P2（评测 / 生产化） | 标注集、指标、人工复核、监控 | ⬜ 待做 |
 
 ### 4.1 P0 已落地的关键决策（请勿推翻，除非业务变化）
@@ -100,7 +108,26 @@ runner.py 依次执行三个子进程阶段：
 4. **“退回” = 红线亮起后 5 秒内，反向跨回入口计数线**；触发只保留进入类（`line.cross`）。
 5. **红灯阈值在前端“信号区阈值”高级设置里可编辑**，随任务快照冻结，每相机各存一套；校准工具输出建议值。
 6. **入口方向翻转只作用于最新画的一条计数线**。
-7. **仅移除 Webhook**；实时控制台（经典 CV 检测/计数/监控）与基础分析保留；`poseDevice` 默认 `cuda`，姿态模型 `yolo11m-pose.pt` 自动加载，无需手动选模型/设备。
+7. **仅移除 Webhook**；实时控制台（经典 CV 检测/计数/监控）与基础分析保留。
+8. **启动即就绪，无需手动选设备/模型**：后端启动时（FastAPI `lifespan` → `_autostart`）自动选 CUDA（不可用回退 CPU）并加载 `yolo11m-pose.pt`；前端 `ControlPanel` 挂载读 `GET /api/state` 回显当前引擎与模型，Model Hub 下拉与 CPU/CUDA 按钮仍可手动切换。VLM 分析侧 `poseDevice` 默认 `cuda`、姿态模型固定 `yolo11m-pose.pt`。可用 `ULTRA_AUTOSTART / ULTRA_DEFAULT_MODEL / ULTRA_DEVICE` 配置；自动选择失败只记日志、降级为 CPU/无模型，不阻塞启动。
+
+### 4.2 本轮变更清单（P1②③ 结构化条件输出 + 控制台启动自选）
+
+**VLM 结构化条件输出与默认否认提示词**
+- `contracts.py`：`ConditionCheck` 新增 `evidenceTimeSec`；`ModelAnswer.conditions` 转为主输出。
+- `results.py`：`POSTPROCESS_VERSION` v4→**v5**；`parse_answer(trigger)` 解析 conditions + 证据校验降级；新增 `decision_from_conditions` 合取真值表；`apply_answer` 映射 `frameIndex`；`verified_decision` 精简为 advisory。
+- `prompting.py`：`PROMPT_VERSION` →**v6**；去衣着/外貌禁令、默认否认、字段顺序 `videoDescription/conditions/decision/confidence/reason`、3 个 few-shot。
+- `qwen_worker.py`：`parse_answer/apply_answer` 接线传 `trigger` + 采样清单；output 带 `eventCriteria` 快照。
+- 前端 `utils/vlm.ts` + `ui/vlm/VlmPanel.tsx` + i18n：逐条件证据列表（状态标记 + 点击跳转 `evidenceTimeSec`）。
+- 测试：`test_vlm.py` 更新、新增 `test_prompting.py`、合取真值表与证据降级覆盖。
+
+**控制台启动自动选 CUDA + yolo11m-pose**
+- `config.py`：`Settings` 新增 `autostart/default_model/device`（`ULTRA_AUTOSTART/ULTRA_DEFAULT_MODEL/ULTRA_DEVICE`）。
+- `main.py`：FastAPI `lifespan`→`_autostart`（选 cuda/回退 cpu + 加载默认模型，失败降级不阻塞）；新增 `GET /api/state`。
+- `state.py`：初始 `engine.device` 改用 `settings.device`。
+- 前端 `contracts.ts`（`ConsoleBootstrap`）+ `client.ts`（`apiGetState`）+ `ControlPanel.tsx`（挂载同步 engine/model，下拉与按钮保留）。
+- 测试：`conftest.py` autouse 关闭 autostart；新增 `test_autostart.py`（/api/state、优先 cuda、回退 cpu）。
+- 验证：后端 pytest 53 通过 + 1 skip、ruff 通过、前端 build/lint/test 30 通过；重启后 `GET /api/state` 实测回显 `cuda` + `yolo11m-pose.pt`。
 
 ---
 
@@ -154,7 +181,7 @@ PYTHONPATH=Rules/src python -m ultra_rules.vlm.cli calibrate \
 
 把输出的 `suggestedMinOnRatio` 等建议值填进前端「信号区阈值」面板。**注意**：校准需要一段“红灯确实亮起”的片段；若只有“灭”的样本，只能确定“灭”的基线上限，无法验证召回。
 
-### 6.2 P1 —— 证据、提示词与模型（⬜ 待做）
+### 6.2 P1 —— 证据、提示词与模型（🔶 部分完成：②③ 已落地并 GPU 实测，①④⑤ 待做）
 
 **目标**：让模型“看得见、说得出证据、判得稳”。
 
@@ -164,15 +191,17 @@ PYTHONPATH=Rules/src python -m ultra_rules.vlm.cli calibrate \
    - 围绕“红灯亮起时刻”以 4–6 FPS 抽 5–6 秒，`maxFrames` 提到 48–64（而不是固定 2 FPS 覆盖 8 秒）。
    - 相关代码：`Rules/src/ultra_rules/vlm/sampling.py` 的 `windows / choose_rows / build_sample`。
 
-2. **结构化条件输出，代码做最终决策**
-   - 要求模型输出每个条件的 `status: yes/no/unknown` + `evidenceTimeSec` + `frameIndex/ROI`，由 `results.py` 按条件合取计算最终 decision，而非相信模型自由文本里的结论。
-   - 证据时间不得等于 `triggerSec`（除非该帧确实可见）。
-   - 相关代码：`prompting.py`（提示词）、`results.py`（解析/裁决）、`contracts.py` 的 `ModelAnswer`。
+2. **结构化条件输出，代码做最终决策**（✅ 已完成）
+   - 模型对每个 `criteria` 输出 `{index, status: yes/no/unknown, evidenceTimeSec}`；`results.py` 的 `decision_from_conditions` 按合取真值表算 decision（任一 no→no_match；全 yes→match；否则 uncertain），模型自由文本结论降级为 `modelDecision` 对照，两者不一致记 `condition_decision_mismatch`。
+   - 证据校验：`evidenceTimeSec` 越窗 / 约等于 `triggerSec`（|差|<0.15s）/ 为 null 时把该条件降级 `unknown` 并记警告；`conditions` 缺失或数量不符则整体回退采信 `modelDecision`（`conditions_unavailable`），保证旧模型/坏格式不崩。
+   - `apply_answer` 把 `evidenceTimeSec` 映射到最近采样帧 `frameIndex`（`sampleTimesSeconds`+`sourceFrameIndices`）供前端回放；`qwen_worker` output 带 `eventCriteria` 快照供前端按 index 映射条件文本。
+   - **未做**：条件的 ROI/bbox 输出（2B 模型不稳定，依赖 P1①）。相关代码：`prompting.py`、`results.py`、`contracts.py`（`ModelAnswer/ConditionCheck`）、`qwen_worker.py`、前端 `utils/vlm.ts` + `ui/vlm/VlmPanel.tsx`。
 
-3. **提示词改为“默认否认”**
-   - “只有清晰看到红灯亮起才可 match；看不到就 no_match/unknown，不得根据事件描述推断已发生”。
-   - 对固定 ROI 的短暂视觉线索：在采样覆盖完整时“未出现”可作为 no 的证据；仅遮挡/窗口外才 uncertain。
-   - 加入 2–3 个 few-shot（明确 positive / negative / uncertain），并禁止复述 criteria。
+3. **提示词改为“默认否认”**（✅ 已完成，`PROMPT_VERSION=target-event-described-json-v6`）
+   - 删除“未看见不等于没发生”，改为默认否认：只有清晰看到条件所需现象才认定发生；固定 ROI 线索在采样完整覆盖下“未出现”作为 no 证据，仅遮挡/窗口外才 uncertain；红灯亮起时刻以画面为准，不得用 `triggerSec` 代替。
+   - 禁止描述衣着/外貌/体型/发色等与判定无关属性（目标身份由粉红框标识）；`videoDescription` 收紧到 2–4 句、`reason` 逐项交代各必要条件的可见依据。
+   - 输出字段顺序 `videoDescription, conditions, decision, confidence, reason`；加 3 个 few-shot（match / no_match / uncertain）。
+   - **GPU 实测**：输出不再出现衣着词、`videoDescription` 字数降约 3–4 倍且关键动作/时序保留、conditions↔criteria 映射与合取决策生效、`evidence_time_equals_trigger` 降级在真实数据触发。
 
 4. **模型升级与集成**
    - 至少用 4B 做对比（16GB 显存可跑 4B BF16，此前峰值约 9GB）；8B 需量化/卸载。
@@ -216,12 +245,12 @@ PYTHONPATH=Rules/src python -m ultra_rules.vlm.cli calibrate \
 | `Rules/src/ultra_rules/vlm/sampling.py` | 抽帧窗口、选帧、标注预览图 |
 | `Rules/src/ultra_rules/vlm/prompting.py` | VLM 提示词 |
 | `Rules/src/ultra_rules/vlm/qwen_worker.py` | Qwen 模型封装 + `understand()` 编排 |
-| `Rules/src/ultra_rules/vlm/results.py` | 解析 / 裁决 / 聚合 |
+| `Rules/src/ultra_rules/vlm/results.py` | 解析 / 裁决（`decision_from_conditions` 合取真值表 + 证据校验降级）/ 聚合 |
 | `backend/app/vlm_api.py` | VLM 相关 HTTP 接口 |
 | `backend/app/event_rules.py` | 规则库 CRUD + ManagedRun + resolve |
 | `backend/app/library_api.py` / `video_api.py` | 记录管理 / 视频预览转码 |
-| `backend/app/main.py` | FastAPI 入口：VLM/视频/库路由 + 实时推理接口（`/api/models` `/api/params` `/api/system/stats` `/ws/infer`）|
-| `backend/app/infer_runtime.py` / `devices.py` / `state.py` / `system_stats.py` / `logging_store.py` / `schemas.py` | 经典 CV 实时推理运行时（模型加载、设备、参数、系统状态、日志、Schema）|
+| `backend/app/main.py` | FastAPI 入口：VLM/视频/库路由 + 实时推理接口（`/api/models` `/api/state` `/api/params` `/api/system/stats` `/ws/infer`）+ 启动 `lifespan` 自动选设备/加载默认模型 |
+| `backend/app/infer_runtime.py` / `devices.py` / `state.py` / `config.py` / `system_stats.py` / `logging_store.py` / `schemas.py` | 经典 CV 实时推理运行时（模型加载、设备、参数、启动自选配置、系统状态、日志、Schema）|
 
 **前端（`frontend/src/`）**
 
@@ -229,9 +258,9 @@ PYTHONPATH=Rules/src python -m ultra_rules.vlm.cli calibrate \
 |---|---|
 | `ui/viewer/tabs/VideoTab.tsx` | 视频选择 + 预览 + 基础检测分析 + 画线/区/信号区 + 挂载 VlmPanel |
 | `ui/viewer/widgets/EventEditOverlay.tsx` | 画 POI（含入口方向箭头） |
-| `ui/control/ControlPanel.tsx` | 实时控制台左栏（引擎/NMS/类别过滤/模型） |
+| `ui/control/ControlPanel.tsx` | 实时控制台左栏（引擎/NMS/类别过滤/模型；挂载读 `/api/state` 回显启动自选的设备与模型） |
 | `ui/monitor/MonitorPanel.tsx` | 实时控制台右栏（系统状态/配置/计数事件/告警/日志） |
-| `ui/vlm/VlmPanel.tsx` | 语义分析控制 + 结果展示 |
+| `ui/vlm/VlmPanel.tsx` | 语义分析控制 + 结果展示（含逐条件证据 + 点击跳转 `evidenceTimeSec`） |
 | `ui/vlm/EventRulesEditor.tsx` | 规则编辑 + POI/信号区绑定 |
 | `ui/vlm/CueSettings.tsx` | 信号区阈值编辑 |
 | `ui/vlm/AnalysisParameters.tsx` | 分析参数（模型 / 姿态设备 / 抽帧等） |
@@ -280,7 +309,10 @@ PYTHONPATH=Rules/src python -m ultra_rules.vlm.cli calibrate \
 - [ ] **入口方向**：默认双向 + 退回配对；单向闸门若仍出现“退回被当新进入”的边界，用前端“进入方向”翻转控件设定方向。
 - [ ] **红灯起始时刻 vs 触发窗口**：红灯延迟亮起超过 `preSeconds/postSeconds` 时，5 秒窗口会对不齐（P1 以 onset 定窗口后可解决）。
 - [ ] **置信度不可信**：当前是模型自报、未校准，不能作为概率或阈值。
-- [ ] **CUDA 全流程推理**：本机无 CUDA 时未做 GPU 端到端验证（`poseDevice` 默认 cuda，需在有 GPU 环境复测）。
+- [x] **CUDA 端到端**：本机有 GPU，已验证控制台启动自动选 cuda + 加载 `yolo11m-pose.pt`（`GET /api/state` 回显），并跑通一次真实 VLM 分析（`model-decision-v5`）。
+- [ ] **P1② 证据降级 vs 缺失即否定**：`missing_evidence_time` 会把“基于未出现”的 no（`evidenceTimeSec=null`，如“红灯从未亮起”）降级为 unknown，使 `no_match`→`uncertain`，与目标“未出现作为 no 证据”存在张力；待决定是否放宽（`status=no` 且 null 不降级，仅 `yes` 且 null 才降级）。
+- [ ] **规则 criteria 混入指令型条目**：如“忽略安检门顶部灯光”不是可检验条件，合取（全 yes→match）下模型无法标 yes 会阻断 match；需在规则库层面把“指令”与“可检验条件”分开。
+- [ ] **采样 manifest 长度不一致**：个别窗口 `sampleTimesSeconds` 与 `sourceFrameIndices` 长度不等时 `frameIndex` 映射被跳过（前端 seek 用 `evidenceTimeSec` 不受影响）；待排查 `sampling.py` 或加防御性对齐。
 - [ ] **评测集缺失**：P2 前无法量化准确率，属于当前最高优先级的“基础设施”缺口。
 
 ---

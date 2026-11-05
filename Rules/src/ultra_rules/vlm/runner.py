@@ -43,7 +43,11 @@ def run(run_dir: Path):
     with lock_path.open("w") as lock:
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            phases = [("tracking", config["posePython"], 86400)]
+            # segment runs in the pose env (only needs av); tracking/cues stay on
+            # the full timeline; understanding loops segments inside one worker
+            # so the Qwen model is loaded once but processed in bounded slices.
+            phases = [("segment", config["posePython"], 3600),
+                      ("tracking", config["posePython"], 86400)]
             if config["request"].get("cues"):
                 phases.append(("cues", config["posePython"], 86400))
             phases.append(("understanding", config["qwenPython"], 86400))

@@ -21,7 +21,12 @@ def _token_matches(value: str | None) -> bool:
 
 
 def require_http_auth(request: Request) -> None:
-    if not _token_matches(request.headers.get("authorization") or request.headers.get("x-api-token")):
+    # Cookie fallback lets <video>/<img> elements authenticate for Range-streamed
+    # media, which cannot send Authorization headers. Without it the frontend must
+    # download whole multi-gigabyte previews into memory as blobs.
+    token = (request.headers.get("authorization") or request.headers.get("x-api-token")
+             or request.cookies.get("ultra_session"))
+    if not _token_matches(token):
         raise HTTPException(status_code=401, detail="Invalid or missing API token")
 
 

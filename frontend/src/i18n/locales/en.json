@@ -115,6 +115,7 @@
     "frames": "pose frames",
     "candidates": "candidates",
     "judgments": "judgments",
+    "segment": "segment",
     "noCandidates": "No applicable POI triggers. Check geometry, anchor and trigger types.",
     "confidence": "Model self-reported confidence (uncalibrated; not event probability)",
     "review": "Review reasons",
@@ -128,6 +129,11 @@
     "quality.timeUnreliable": "Frame time is not based on PTS",
     "quality.evidenceTimeOutsideWindow": "Out-of-window citations excluded from usable evidence",
     "quality.different_segment_decisions": "Segments differ; any matching segment preserves a match",
+    "quality.conditions_unavailable": "Model gave no complete per-condition verdicts; fell back to its overall decision",
+    "quality.condition_decision_mismatch": "Conjunction of conditions disagrees with the model's stated decision; conjunction wins",
+    "quality.evidence_time_outside_window": "A condition cited evidence outside the window; downgraded to unknown",
+    "quality.evidence_time_equals_trigger": "A condition used the trigger time as evidence; downgraded to unknown",
+    "quality.missing_evidence_time": "A condition lacked an evidence time; downgraded to unknown",
     "queued": "Queued",
     "tracking": "Tracking / POI detection",
     "understanding": "Qwen understanding",
@@ -144,7 +150,12 @@
     "deterministic": "Deterministic verdict",
     "cueState": "Red light",
     "videoDescription": "Video content description",
-    "judgmentReason": "Judgment rationale"
+    "judgmentReason": "Judgment rationale",
+    "conditions": "Per-condition evidence",
+    "conditionYes": "met",
+    "conditionNo": "not met",
+    "conditionUnknown": "unknown",
+    "evidenceAt": "evidence @"
   },
   "vlmCue": {
     "title": "Signal ROI thresholds",

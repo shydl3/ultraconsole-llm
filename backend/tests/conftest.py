@@ -3,6 +3,16 @@ import json
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def _disable_startup_autostart(monkeypatch):
+    """Startup auto-selection must never load real weights or CUDA during tests."""
+    from dataclasses import replace
+
+    import app.main as main
+
+    monkeypatch.setattr(main, "settings", replace(main.settings, autostart=False))
+
+
 @pytest.fixture
 def local_vlm_models(tmp_path, monkeypatch):
     # Metadata fixtures only: tests must not load actual model weights or CUDA.

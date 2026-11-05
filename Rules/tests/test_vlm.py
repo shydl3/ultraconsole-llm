@@ -7,10 +7,10 @@ import av
 import numpy as np
 import pytest
 from pydantic import ValidationError
-from ultra_rules.vlm.contracts import EventDefinition, RunRequest
+from ultra_rules.vlm.contracts import ConditionCheck, EventDefinition, RunRequest
 from ultra_rules.vlm.media import decoded, probe, sampled
 from ultra_rules.vlm.poi import PoiTracker
-from ultra_rules.vlm.results import parse_answer, verified_decision
+from ultra_rules.vlm.results import apply_answer, decision_from_conditions, parse_answer, verified_decision
 from ultra_rules.vlm.sampling import choose_rows, source_images, windows
 
 
@@ -127,25 +127,101 @@ def test_sampling_obeys_configured_cap_at_minimum_and_preserves_trigger(maximum)
     assert len({row["frameIndex"] for row in selected}) == len(selected)
 
 
+def make_part(start=1, end=3):
+    return {"window": {"startSec": start, "endSec": end},
+            "quality": {"targetVisibleFraction": 1, "medianTargetHeightPx": 100, "uniqueFrameCount": 10}}
+
+
 def test_strict_output_and_advisory_quality():
+    # A well-formed condition set carries evidenceTimeSec; the model emits the "status" key.
     body = {"decision": "match", "confidence": .8, "reason": "visible",
-            "evidence": [{"timeSec": 2, "observation": "action"}], "conditions": [{"index": 0, "value": "yes"}]}
-    answer = parse_answer(json.dumps(body), 1, 3, 1)
+            "evidence": [{"timeSec": 2, "observation": "action"}],
+            "conditions": [{"index": 0, "status": "yes", "evidenceTimeSec": 2}]}
+    answer = parse_answer(json.dumps(body), 1, 3, 1, trigger=2.5)
+    assert answer.conditions == [ConditionCheck(index=0, value="yes", evidenceTimeSec=2)]
     quality = {"targetVisibleFraction": 1, "medianTargetHeightPx": 100, "uniqueFrameCount": 10}
+    # verified_decision is advisory only: it echoes the model decision and flags quality issues.
     assert verified_decision(answer, quality) == ("match", [])
     assert verified_decision(answer, {**quality, "postContextClipped": True}) == ("match", [])
-    body["conditions"][0]["value"] = "no"
-    assert "inconsistent_conditions" in verified_decision(parse_answer(json.dumps(body), 1, 3, 1), quality)[1]
+    assert verified_decision(answer, {**quality, "targetVisibleFraction": .1})[1] == ["insufficient_target_visibility"]
+    # Out-of-window evidence citations still raise unless the caller tolerates them.
     body["evidence"][0]["timeSec"] = 99
     with pytest.raises(ValueError, match="timestamp"):
-        parse_answer(json.dumps(body), 1, 3, 1)
-    # Out-of-window citations are advisory and do not overwrite the model decision.
-    tolerant = parse_answer(json.dumps(body), 1, 3, 1, check_timestamps=False)
+        parse_answer(json.dumps(body), 1, 3, 1, trigger=2.5)
+    tolerant = parse_answer(json.dumps(body), 1, 3, 1, trigger=2.5, check_timestamps=False)
     assert verified_decision(tolerant, {**quality, "evidenceTimeOutsideWindow": True}) == (
-        "match", ["inconsistent_conditions", "evidenceTimeOutsideWindow"])
+        "match", ["evidenceTimeOutsideWindow"])
+    # NaN confidence is rejected by the strict contract before any evidence check.
     body["confidence"] = float("nan")
     with pytest.raises(ValidationError):
-        parse_answer(json.dumps(body), 1, 3, 1)
+        parse_answer(json.dumps(body), 1, 3, 1, trigger=2.5)
+
+
+def test_condition_evidence_is_validated_and_downgraded():
+    body = {"decision": "match", "reason": "r",
+            "conditions": [{"index": 0, "status": "yes", "evidenceTimeSec": 2.0}]}
+    # yes whose evidence time equals the trigger is not credible -> unknown.
+    answer = parse_answer(json.dumps(body), 1, 3, 1, trigger=2.0)
+    assert answer.conditions[0].value == "unknown"
+    assert "evidence_time_equals_trigger" in answer._parse_warnings
+    # evidence time outside the window -> unknown.
+    body["conditions"][0]["evidenceTimeSec"] = 99
+    answer = parse_answer(json.dumps(body), 1, 3, 1, trigger=2.0)
+    assert answer.conditions[0].value == "unknown"
+    assert "evidence_time_outside_window" in answer._parse_warnings
+    # yes/no without an evidence time -> unknown.
+    body["conditions"][0].pop("evidenceTimeSec")
+    answer = parse_answer(json.dumps(body), 1, 3, 1, trigger=2.0)
+    assert answer.conditions[0].value == "unknown"
+    assert "missing_evidence_time" in answer._parse_warnings
+
+
+def test_decision_from_conditions():
+    yes0 = ConditionCheck(index=0, value="yes", evidenceTimeSec=1)
+    yes1 = ConditionCheck(index=1, value="yes", evidenceTimeSec=2)
+    no1 = ConditionCheck(index=1, value="no", evidenceTimeSec=2)
+    unk1 = ConditionCheck(index=1, value="unknown", evidenceTimeSec=None)
+    # all yes -> match
+    assert decision_from_conditions([yes0], 1) == ("match", [])
+    assert decision_from_conditions([yes0, yes1], 2) == ("match", [])
+    # any no -> no_match; no dominates yes and unknown
+    assert decision_from_conditions([yes0, no1], 2) == ("no_match", [])
+    assert decision_from_conditions([unk1, no1], 2) == ("no_match", [])
+    # unknown without any no -> uncertain
+    assert decision_from_conditions([yes0, unk1], 2) == ("uncertain", [])
+    assert decision_from_conditions([unk1], 1) == ("uncertain", [])
+    # count mismatch or no criteria -> unavailable, caller falls back to the model decision
+    assert decision_from_conditions([yes0], 2) == (None, ["conditions_unavailable"])
+    assert decision_from_conditions([], 0) == (None, ["conditions_unavailable"])
+
+
+def test_apply_answer_conjunction_and_fallback():
+    # Conjunction wins and maps the evidence second to the nearest sampled source frame.
+    body = {"decision": "match", "confidence": .8, "reason": "r",
+            "conditions": [{"index": 0, "status": "yes", "evidenceTimeSec": 2}]}
+    answer = parse_answer(json.dumps(body), 1, 3, 1, trigger=2.5)
+    part = make_part()
+    apply_answer(part, answer, sample_times=[1, 2, 3], source_indices=[10, 20, 30], trigger=2.5)
+    assert part["decision"] == "match" and part["modelDecision"] == "match"
+    assert part["conditions"][0]["frameIndex"] == 20
+    assert part["postprocessVersion"] == "model-decision-v5"
+    assert "condition_decision_mismatch" not in part["qualityWarnings"]
+    # A single no overrides the model's stated match and records the mismatch.
+    body = {"decision": "match", "reason": "r",
+            "conditions": [{"index": 0, "status": "yes", "evidenceTimeSec": 1.5},
+                            {"index": 1, "status": "no", "evidenceTimeSec": 2.0}]}
+    answer = parse_answer(json.dumps(body), 1, 3, 2, trigger=2.5)
+    part = make_part()
+    apply_answer(part, answer, trigger=2.5)
+    assert part["decision"] == "no_match" and part["modelDecision"] == "match"
+    assert "condition_decision_mismatch" in part["qualityWarnings"]
+    # Missing conditions fall back to the model decision (legacy v4 behaviour).
+    answer = parse_answer(json.dumps({"decision": "uncertain", "reason": "r"}), 1, 3, 1)
+    part = make_part()
+    apply_answer(part, answer)
+    assert part["decision"] == "uncertain" and part["modelDecision"] == "uncertain"
+    assert part["conditions"] == []
+    assert "conditions_unavailable" in part["qualityWarnings"]
 
 
 def test_config_rejects_duplicate_ids_invalid_references_and_empty_geometry():

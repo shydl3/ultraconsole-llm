@@ -115,6 +115,7 @@
     "frames": "姿态帧",
     "candidates": "候选",
     "judgments": "判断",
+    "segment": "分段",
     "noCandidates": "未发现适用的 POI 触发，请核对画线位置、锚点和触发类型。",
     "confidence": "模型自报置信度（未校准，非违规概率）",
     "review": "需复核原因",
@@ -128,6 +129,11 @@
     "quality.timeUnreliable": "帧时间来源不是 PTS",
     "quality.evidenceTimeOutsideWindow": "模型引用了窗口外时间，已从有效证据中排除",
     "quality.different_segment_decisions": "不同片段判断不同，任一片段匹配则整体保留匹配",
+    "quality.conditions_unavailable": "模型未给出完整逐条件判断，已回退采信模型结论",
+    "quality.condition_decision_mismatch": "逐条件合取结论与模型自述结论不一致，以合取为准",
+    "quality.evidence_time_outside_window": "某条件的证据时间落在窗口外，已降级为无法确认",
+    "quality.evidence_time_equals_trigger": "某条件把触发时间当作证据时间，已降级为无法确认",
+    "quality.missing_evidence_time": "某条件缺少证据时间，已降级为无法确认",
     "queued": "排队中",
     "tracking": "姿态跟踪与 POI 检测",
     "understanding": "Qwen 语义判断",
@@ -144,7 +150,12 @@
     "deterministic": "确定性判定",
     "cueState": "红灯检测",
     "videoDescription": "视频内容描述",
-    "judgmentReason": "判断依据"
+    "judgmentReason": "判断依据",
+    "conditions": "逐条件证据",
+    "conditionYes": "满足",
+    "conditionNo": "不满足",
+    "conditionUnknown": "无法确认",
+    "evidenceAt": "证据 @"
   },
   "vlmCue": {
     "title": "信号区阈值",

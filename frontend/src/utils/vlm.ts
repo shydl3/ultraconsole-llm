@@ -7,18 +7,22 @@ export type VlmEventDefinition = {
 }
 export type VlmRun = {
   runId: string; videoId: string; fileName?: string; state: string; error?: string
-  progress?: { sampledFrames?: number; candidateCount?: number; trackingFraction?: number; completedRequests?: number; totalRequests?: number; failedRequests?: number }
+  progress?: { sampledFrames?: number; candidateCount?: number; trackingFraction?: number; completedRequests?: number; totalRequests?: number; failedRequests?: number; currentSegment?: number; segmentCount?: number }
   summary?: { resultCount: number; reason?: string; dryRun?: boolean }
   parameters?: VlmParameters
+}
+export type VlmCondition = {
+  index: number; value: 'yes' | 'no' | 'unknown'; evidenceTimeSec?: number | null; frameIndex?: number | null
 }
 export type VlmResult = {
   resultId: string; trackId: number; trackSegmentId: string; poiId: string; triggerSec: number
   triggerKind: string; eventDefinitionId: string; description: string; decision: string
   inferenceStatus: string; modelDecisionConfidence: number | null; reason: string; error?: string
   modelDecision?: string; videoDescription?: string | null; deterministicDecision?: string
+  eventCriteria?: string[]; conditions?: VlmCondition[]
   cueEvidence?: { cueIds: string[]; state: string; onsetSec: number | null }
   previewPath?: string; downgradeReasons?: string[]; qualityWarnings?: string[]; postprocessVersion?: string
-  segments?: { previewPath?: string; reason?: string; videoDescription?: string | null; decision?: string; rawOutputPath?: string; sampleManifest?: string; window: { startSec: number; endSec: number } }[]
+  segments?: { previewPath?: string; reason?: string; videoDescription?: string | null; decision?: string; conditions?: VlmCondition[]; rawOutputPath?: string; sampleManifest?: string; window: { startSec: number; endSec: number } }[]
 }
 
 export const activeVlm = (state: string) => ['queued', 'tracking', 'cues', 'understanding', 'cancelling'].includes(state)

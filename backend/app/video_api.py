@@ -23,7 +23,11 @@ CACHE_ROOT = Path(os.getenv(
     "ULTRA_VIDEO_PREVIEW_DIR", str(Path(__file__).resolve().parents[2] / "data" / "video-previews"),
 )).expanduser().resolve()
 WORKER = Path(__file__).with_name("video_transcode.py")
-MAX_BYTES = int(os.getenv("ULTRA_VIDEO_MAX_UPLOAD_BYTES", str(2 * 1024**3)))
+MAX_BYTES = int(os.getenv("ULTRA_VIDEO_MAX_UPLOAD_BYTES", str(8 * 1024**3)))
+# Bound concurrent GPU conversions so one long 2h transcode cannot block everyone,
+# while still preventing unbounded queue pile-up on a single GPU.
+MAX_CONCURRENT = int(os.getenv("ULTRA_VIDEO_MAX_CONCURRENT", "2"))
+_convert_semaphore = threading.Semaphore(MAX_CONCURRENT)
 jobs: dict[str, dict] = {}
 lock = threading.RLock()
 
@@ -112,7 +116,12 @@ def _run(identifier: str) -> None:
         def progress(value):
             with lock:
                 job["progress"] = value
-        transcode(folder / "source", folder / "preview.mp4", job["cancel"], progress)
+        # Queue on the bounded semaphore instead of rejecting outright; a 2h
+        # transcode no longer blocks every other user, but the GPU stays bounded.
+        with _convert_semaphore:
+            if job["cancel"].is_set():
+                raise InterruptedError("Preview cancelled")
+            transcode(folder / "source", folder / "preview.mp4", job["cancel"], progress)
         if job["cancel"].is_set():
             raise InterruptedError("Preview cancelled")
         _publish_preview(job)
@@ -146,9 +155,9 @@ def create_preview(file: UploadFile):
             if job.get("finished", float("inf")) < time.time() - 86400:
                 shutil.rmtree(job["folder"], ignore_errors=True)
                 jobs.pop(identifier)
-        if any(job["state"] in {"uploading", "converting"} for job in jobs.values()):
+        if sum(1 for job in jobs.values() if job["state"] == "converting") >= MAX_CONCURRENT * 4:
             file.file.close()
-            raise HTTPException(409, "Another video preview is being converted; retry when it finishes")
+            raise HTTPException(429, "Preview conversion queue is full; retry shortly")
         identifier = uuid.uuid4().hex
         ROOT.mkdir(parents=True, exist_ok=True)
         active_folders = {job["folder"] for job in jobs.values()}

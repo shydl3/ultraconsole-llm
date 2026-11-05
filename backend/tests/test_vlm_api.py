@@ -110,6 +110,80 @@ def test_invalid_video_and_size_limit_cleanup(client, monkeypatch):
     assert list((api.DATA_ROOT / "uploads").iterdir()) == []
 
 
+def clip_bytes(tmp_path):
+    path = tmp_path / "clip.mp4"
+    writer = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*"mp4v"), 25, (96, 64))
+    for _ in range(25):
+        writer.write(np.zeros((64, 96, 3), np.uint8))
+    writer.release()
+    return path.read_bytes()
+
+
+def chunked_upload(client, blob, chunk_size):
+    """Drive the init/parts/complete protocol and return the final response."""
+    init = client.post("/api/vlm/videos/init", json={"filename": "clip.mp4", "size": len(blob)})
+    assert init.status_code == 200, init.text
+    upload_id = init.json()["uploadId"]
+    for index, offset in enumerate(range(0, len(blob), chunk_size)):
+        part = client.put(f"/api/vlm/videos/{upload_id}/parts/{index}",
+                          content=blob[offset:offset + chunk_size])
+        assert part.status_code == 200, part.text
+    return upload_id, client.post(f"/api/vlm/videos/{upload_id}/complete")
+
+
+def test_chunked_upload_assembles_and_matches_single_upload_sha(client, tmp_path):
+    blob = clip_bytes(tmp_path)
+    upload_id, done = chunked_upload(client, blob, chunk_size=max(1, len(blob) // 3 + 1))
+    assert done.status_code == 200, done.text
+    meta = done.json()
+    import hashlib
+    assert meta["sha256"] == hashlib.sha256(blob).hexdigest()
+    assert meta["videoId"] == upload_id
+    assert meta["sizeBytes"] == len(blob)
+    # Parts are consumed and removed after assembly.
+    assert not (api.DATA_ROOT / "uploads" / upload_id / "parts").exists()
+    assert (api.DATA_ROOT / "uploads" / upload_id / "video.json").is_file()
+    # The assembled file streams back with Range support like a single upload.
+    assert client.get(f"/api/vlm/videos/{upload_id}/source",
+                      headers={"range": "bytes=0-99"}).status_code == 206
+
+
+def test_chunked_upload_rejects_missing_parts_and_cleans_up(client, tmp_path):
+    blob = clip_bytes(tmp_path)
+    chunk_size = max(1, len(blob) // 3 + 1)
+    init = client.post("/api/vlm/videos/init", json={"filename": "clip.mp4", "size": len(blob)})
+    upload_id = init.json()["uploadId"]
+    # Upload part 0 and part 2 but skip part 1 -> non-contiguous.
+    client.put(f"/api/vlm/videos/{upload_id}/parts/0", content=blob[0:chunk_size])
+    client.put(f"/api/vlm/videos/{upload_id}/parts/2", content=blob[chunk_size * 2:chunk_size * 3])
+    done = client.post(f"/api/vlm/videos/{upload_id}/complete")
+    assert done.status_code == 400, done.text
+    assert not (api.DATA_ROOT / "uploads" / upload_id).exists()
+
+
+def test_chunked_upload_init_validates_extension_and_size(client):
+    assert client.post("/api/vlm/videos/init", json={"filename": "clip.txt", "size": 10}).status_code == 400
+    assert client.post("/api/vlm/videos/init", json={"filename": "clip.mp4", "size": 0}).status_code == 400
+
+
+def test_chunked_upload_abort_removes_pending(client, tmp_path):
+    blob = clip_bytes(tmp_path)
+    init = client.post("/api/vlm/videos/init", json={"filename": "clip.mp4", "size": len(blob)})
+    upload_id = init.json()["uploadId"]
+    client.put(f"/api/vlm/videos/{upload_id}/parts/0", content=blob[:64])
+    assert client.delete(f"/api/vlm/videos/{upload_id}").json()["ok"] is True
+    assert not (api.DATA_ROOT / "uploads" / upload_id).exists()
+    # Completing an aborted upload is unknown.
+    assert client.post(f"/api/vlm/videos/{upload_id}/complete").status_code == 404
+
+
+def test_chunked_upload_rejects_overlong_video(client, tmp_path, monkeypatch):
+    blob = clip_bytes(tmp_path)
+    monkeypatch.setattr(api, "MAX_DURATION_SEC", 0.001)
+    _, done = chunked_upload(client, blob, chunk_size=max(1, len(blob) // 2 + 1))
+    assert done.status_code == 400, done.text
+
+
 def test_crashed_worker_is_interrupted(client):
     folder = api.DATA_ROOT / "runs" / "orphan"
     folder.mkdir(parents=True)

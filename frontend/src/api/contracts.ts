@@ -65,6 +65,7 @@ export type Counters = {
   byZone: Record<string, { current: number; total: number }>
 }
 export type ModelInfo = { id: string; filename: string; taskType: 'detect' | 'segment' | 'pose'; names: Record<string, string> }
+export type ConsoleBootstrap = { engine: { device: DeviceType; warming: boolean }; model: ModelInfo | null }
 export type LogLevel = 'INFO' | 'WARN' | 'ERROR'
 export type LogEntry = { ts: number; level: LogLevel; event: string; msg: string; fields: Record<string, unknown> }
 export type AlertConfig = { enabled: boolean; targetClass?: string; minFrames: number; sound: boolean }

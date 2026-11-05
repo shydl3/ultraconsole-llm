@@ -12,11 +12,13 @@ from ultra_rules.vlm.results import POSTPROCESS_VERSION, aggregate_result, apply
 from ultra_rules.vlm.storage import iter_jsonl, read_json, write_json
 
 
-def answer_body(decision="match", confidence=.7):
+def answer_body(decision="match", confidence=.7, condition_time=1.8):
     value = {"match": "yes", "no_match": "no", "uncertain": "unknown"}[decision]
+    # yes/no verdicts need an in-window evidence second; unknown carries none.
+    evidence_time = None if value == "unknown" else condition_time
     return {"decision": decision, "confidence": confidence, "reason": f"model says {decision}",
             "evidence": [{"timeSec": 1.8, "observation": "alarm"}],
-            "conditions": [{"index": i, "value": value} for i in range(4)]}
+            "conditions": [{"index": i, "value": value, "evidenceTimeSec": evidence_time} for i in range(4)]}
 
 
 def quality(**values):
@@ -161,11 +163,14 @@ def test_live_worker_uses_same_policy_and_keeps_invalid_output_failed(tmp_path, 
             pass
 
         def infer(self, *_args):
-            body = {**answer_body(next(answers)), "videoDescription": "目标沿通道前进后离开画面，后续过程未被观察窗口覆盖。"} if not invalid else None
+            # condition_time=15.0 sits inside both live windows ([0,16] and [14,21.8])
+            # and is far from the 1.8 trigger, so yes/no verdicts are not downgraded.
+            body = {**answer_body(next(answers), condition_time=15.0), "videoDescription": "目标沿通道前进后离开画面，后续过程未被观察窗口覆盖。"} if not invalid else None
             return ("invalid" if invalid else json.dumps(body)), {"generationTruncated": False}
 
     def build_sample(_dir, _config, _request, _candidate, start, end, _sample_id):
-        return None, {}, {"window": {"startSec": start, "endSec": end}, "quality": deepcopy(quality())}
+        return None, {}, {"window": {"startSec": start, "endSec": end}, "quality": deepcopy(quality()),
+                          "sampleTimesSeconds": [], "sourceFrameIndices": []}
 
     monkeypatch.setattr(qwen_worker, "Qwen", FakeQwen)
     monkeypatch.setattr(qwen_worker, "build_sample", build_sample)

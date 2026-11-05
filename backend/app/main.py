@@ -6,10 +6,11 @@ import io
 import os
 import time
 import uuid
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Request, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse
 from PIL import Image
@@ -51,7 +52,57 @@ def _validated_model_id(model_id: str) -> str:
         raise ValueError(f"Model path escapes models dir: {model_id!r}")
     return fn
 
-app = FastAPI(title="Ultralytics Infer Console API", version="0.1.0")
+
+def _autostart() -> None:
+    """Auto-select the inference device and load the default model at startup.
+
+    Mirrors the manual Model Hub / Engine controls so the console is ready
+    without user interaction. Every failure is logged and degrades gracefully
+    (CPU and/or no model) instead of blocking startup.
+    """
+    if not settings.autostart:
+        return
+    target = settings.device if settings.device in ("cpu", "cuda") else "cuda"
+    try:
+        ensure_device_available(target)
+    except RuntimeError as exc:
+        state.logs.append(level="WARN", event="engine.autostart_fallback",
+                          msg=f"{target} unavailable; using CPU: {exc}", fields={"requested": target})
+        target = "cpu"
+    with state.lock:
+        state.engine.device = target
+
+    try:
+        model_id = _validated_model_id(settings.default_model)
+    except ValueError as exc:
+        state.logs.append(level="WARN", event="model.autostart_invalid", msg=str(exc),
+                          fields={"modelId": settings.default_model})
+        return
+    if not any(candidate == model_id for candidate, _ in runtime.list_models()):
+        state.logs.append(level="WARN", event="model.autostart_missing",
+                          msg=f"Default model not present: {model_id}", fields={"modelId": model_id})
+        return
+    try:
+        loaded = runtime.load(model_id, target)
+    except Exception as exc:
+        state.logs.append(level="ERROR", event="model.autostart_failed", msg=str(exc), fields={"modelId": model_id})
+        return
+    with state.lock:
+        state.model_id = loaded.id
+    state.logs.append(level="INFO", event="model.autostart", msg=f"Auto-selected {loaded.id} on {target}",
+                      fields={"task": loaded.task_type, "device": target})
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    try:
+        await asyncio.to_thread(_autostart)
+    except Exception as exc:  # pragma: no cover - defensive; never block startup
+        state.logs.append(level="ERROR", event="autostart.crashed", msg=str(exc))
+    yield
+
+
+app = FastAPI(title="Ultralytics Infer Console API", version="0.1.0", lifespan=lifespan)
 state = AppState()
 runtime = UltralyticsRuntime(models_dir=MODELS_DIR, max_tracker_contexts=settings.max_tracker_contexts)
 
@@ -69,12 +120,27 @@ app.include_router(library_router)
 
 @app.middleware("http")
 async def api_auth_middleware(request: Request, call_next):
-    if request.url.path.startswith("/api/") and request.url.path != "/api/health" and request.method != "OPTIONS":
+    exempt = {"/api/health", "/api/auth/session"}
+    if request.url.path.startswith("/api/") and request.url.path not in exempt and request.method != "OPTIONS":
         try:
             require_http_auth(request)
         except HTTPException as exc:
             return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
     return await call_next(request)
+
+
+@app.post("/api/auth/session")
+def create_session(request: Request, response: Response):
+    """Exchange the Bearer token for an HttpOnly cookie so media elements can stream.
+
+    <video>/<img> tags cannot send Authorization headers; without this cookie the
+    frontend would have to fetch entire multi-gigabyte previews as in-memory blobs.
+    """
+    require_http_auth(request)
+    if settings.api_token:
+        response.set_cookie("ultra_session", settings.api_token, httponly=True,
+                            samesite="strict", max_age=86400, path="/")
+    return {"ok": True}
 
 
 def _device_str(device: str) -> str:
@@ -163,6 +229,18 @@ async def select_engine(req: SelectEngineRequest) -> dict[str, Any]:
                 state.engine.warming = False
 
     return {"ok": True, "device": req.device, "warming": False}
+
+
+@app.get("/api/state")
+def get_state() -> dict[str, Any]:
+    """Current engine device and loaded model so the UI can reflect startup auto-selection."""
+    cur = runtime.current()
+    model = None
+    if cur is not None:
+        model = {"id": cur.id, "filename": cur.filename, "taskType": cur.task_type, "names": cur.names}
+    with state.lock:
+        engine = {"device": state.engine.device, "warming": state.engine.warming}
+    return {"engine": engine, "model": model}
 
 
 @app.get("/api/params", response_model=Params)

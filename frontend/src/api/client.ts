@@ -1,5 +1,5 @@
 import type {
-  DeviceType, ModelInfo, Params,
+  ConsoleBootstrap, DeviceType, ModelInfo, Params,
   SystemStats,
 } from './contracts'
 
@@ -29,6 +29,11 @@ export async function apiHealth() {
 export async function apiListModels() {
   const res = await apiFetch('/api/models')
   return json<ModelInfo[]>(res)
+}
+
+export async function apiGetState() {
+  const res = await apiFetch('/api/state')
+  return json<ConsoleBootstrap>(res)
 }
 
 export async function apiSelectModel(modelId: string) {
@@ -74,6 +79,23 @@ export async function apiSystemStats() {
   return json<SystemStats>(res)
 }
 
+let sessionReady: Promise<void> | null = null
+
+/**
+ * Establish the HttpOnly auth cookie once so <video>/<img> elements can stream
+ * media via Range requests. Without it, multi-gigabyte previews would have to be
+ * downloaded entirely into browser memory as blobs.
+ */
+export function apiEnsureSession(): Promise<void> {
+  if (!API_TOKEN) return Promise.resolve()
+  if (!sessionReady) {
+    sessionReady = apiFetch('/api/auth/session', { method: 'POST' })
+      .then(res => { if (!res.ok) throw new Error(`HTTP ${res.status}`) })
+      .catch(() => { sessionReady = null })
+  }
+  return sessionReady
+}
+
 export function wsInferUrl() {
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
   return `${proto}//${location.host}/ws/infer`
@@ -92,12 +114,64 @@ export async function apiVlm<T>(path: string, init: RequestInit = {}): Promise<T
   return json<T>(await apiFetch(`/api/vlm${path}`, init))
 }
 
+export type UploadProgress = { uploaded: number; total: number }
+
+/**
+ * Chunked, resumable upload for large videos. Splits the file into 16 MiB
+ * parts, uploads them sequentially with per-part retry, and reports byte-level
+ * progress. Aborting the signal cleans up the server-side pending upload.
+ */
+export async function apiVlmUploadChunked(
+  file: File,
+  onProgress: (p: UploadProgress) => void,
+  signal?: AbortSignal,
+): Promise<{ videoId: string }> {
+  const init = await apiVlm<{ uploadId: string; chunkSize: number }>('/videos/init', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ filename: file.name, size: file.size }),
+    signal,
+  })
+  const { uploadId, chunkSize } = init
+  const total = file.size
+  let uploaded = 0
+  const cleanup = () => { void apiFetch(`/api/vlm/videos/${uploadId}`, { method: 'DELETE' }).catch(() => {}) }
+  try {
+    for (let offset = 0, index = 0; offset < total; offset += chunkSize, index++) {
+      if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
+      const blob = file.slice(offset, Math.min(offset + chunkSize, total))
+      let attempt = 0
+      for (;;) {
+        try {
+          await apiFetch(`/api/vlm/videos/${uploadId}/parts/${index}`, {
+            method: 'PUT',
+            headers: { 'content-type': 'application/octet-stream' },
+            body: blob,
+            signal,
+          })
+          break
+        } catch (e) {
+          if (signal?.aborted) throw e
+          if (++attempt > 3) throw e
+          await new Promise(r => setTimeout(r, 500 * attempt))
+        }
+      }
+      uploaded += blob.size
+      onProgress({ uploaded, total })
+    }
+    const meta = await apiVlm<{ videoId: string }>(`/videos/${uploadId}/complete`, { method: 'POST', signal })
+    onProgress({ uploaded: total, total })
+    return meta
+  } catch (e) {
+    cleanup()
+    throw e
+  }
+}
+
 export async function apiVlmMedia(path: string): Promise<string> {
-  const url = `/api/vlm${path}`
-  if (!API_TOKEN) return url
-  const response = await apiFetch(url)
-  if (!response.ok) throw new Error(`HTTP ${response.status}`)
-  return URL.createObjectURL(await response.blob())
+  // Cookie auth lets media elements stream directly; never blob whole videos.
+  await apiEnsureSession()
+  return `/api/vlm${path}`
 }
 
 export type VideoPreviewStatus = { state: 'uploading' | 'converting' | 'ready' | 'failed' | 'cancelled'; progress: number; error?: string }
@@ -117,11 +191,9 @@ export async function apiDeleteVideoPreview(id: string) {
 }
 
 export async function apiVideoPreviewUrl(id: string, signal: AbortSignal) {
-  const url = `/api/video/previews/${id}/source`
-  if (!API_TOKEN) return url
-  const response = await apiFetch(url, { signal })
-  if (!response.ok) throw new Error(`HTTP ${response.status}`)
-  return URL.createObjectURL(await response.blob())
+  await apiEnsureSession()
+  if (signal.aborted) throw new DOMException('Aborted', 'AbortError')
+  return `/api/video/previews/${id}/source`
 }
 
 export async function apiLibrary<T>(path = '', init: RequestInit = {}): Promise<T> {
@@ -129,8 +201,7 @@ export async function apiLibrary<T>(path = '', init: RequestInit = {}): Promise<
 }
 
 export async function apiLibraryMedia(url: string, signal?: AbortSignal): Promise<string> {
-  if (!API_TOKEN) return url
-  const response = await apiFetch(url, { signal })
-  if (!response.ok) throw new Error(`HTTP ${response.status}`)
-  return URL.createObjectURL(await response.blob())
+  await apiEnsureSession()
+  if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
+  return url
 }

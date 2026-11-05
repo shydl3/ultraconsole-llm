@@ -39,7 +39,7 @@ def prepare(run_dir: Path, request: RunRequest, source: Path, video: dict, data_
 def main():
     parser = argparse.ArgumentParser(description="POI-triggered Qwen3-VL offline analysis")
     sub = parser.add_subparsers(dest="command", required=True)
-    for phase in ("tracking", "cues", "understanding", "reprocess"):
+    for phase in ("segment", "tracking", "cues", "understanding", "reprocess"):
         sub.add_parser(phase).add_argument("--run-dir", type=Path, required=True)
     analyze = sub.add_parser("analyze")
     analyze.add_argument("--input", type=Path, required=True)
@@ -50,7 +50,10 @@ def main():
     calibrate.add_argument("--input", type=Path, required=True)
     calibrate.add_argument("--cue", type=Path, required=True, help="CueDefinition JSON (id + points polygon)")
     args = parser.parse_args()
-    if args.command == "tracking":
+    if args.command == "segment":
+        from .segmenting import run_segment_phase
+        run_segment_phase(args.run_dir)
+    elif args.command == "tracking":
         from .observations import track
         track(args.run_dir)
     elif args.command == "cues":

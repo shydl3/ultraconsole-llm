@@ -34,6 +34,9 @@ class Settings:
     max_ws_base64_chars: int
     max_tracker_contexts: int
     allow_private_webhooks: bool
+    autostart: bool
+    default_model: str
+    device: str
 
 
 settings = Settings(
@@ -52,4 +55,10 @@ settings = Settings(
     max_ws_base64_chars=_env_int("ULTRA_MAX_WS_BASE64_CHARS", 16 * 1024 * 1024),
     max_tracker_contexts=_env_int("ULTRA_MAX_TRACKER_CONTEXTS", 10),
     allow_private_webhooks=_env_bool("ULTRA_ALLOW_PRIVATE_WEBHOOKS"),
+    # Startup auto-selection: pick the inference device and load a default model
+    # so the console is ready without manual selection. ULTRA_DEVICE="" means
+    # "prefer CUDA, fall back to CPU"; set it to cpu/cuda to force a device.
+    autostart=_env_bool("ULTRA_AUTOSTART", True),
+    default_model=os.environ.get("ULTRA_DEFAULT_MODEL", "yolo11m-pose.pt").strip(),
+    device=os.environ.get("ULTRA_DEVICE", "").strip().lower(),
 )

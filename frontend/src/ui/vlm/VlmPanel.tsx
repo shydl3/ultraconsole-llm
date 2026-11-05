@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { apiVlm, apiVlmMedia } from '../../api/client'
+import { apiVlm, apiVlmMedia, apiVlmUploadChunked } from '../../api/client'
 import type { EventsConfig } from '../../api/contracts'
 import { useT } from '../../i18n'
-import { activeVlm, vlmCues, vlmPois, type VlmResult, type VlmRun } from '../../utils/vlm'
+import { activeVlm, vlmCues, vlmPois, type VlmCondition, type VlmResult, type VlmRun } from '../../utils/vlm'
 import styles from './VlmPanel.module.css'
 import { EventRulesEditor, type RulesEditorHandle, type RulesEditorState } from './EventRulesEditor'
 import { CueSettings } from './CueSettings'
@@ -28,6 +28,21 @@ function EvidenceImage({ runId, path }: { runId: string; path: string }) {
   return url ? <img src={url} alt="Sampled target evidence" /> : null
 }
 
+function ConditionList({ conditions, criteria, onSeek }: {
+  conditions?: VlmCondition[]; criteria?: string[]; onSeek: (sec: number) => void
+}) {
+  const t = useT()
+  if (!conditions?.length) return null
+  const label = (v: string) => t(v === 'yes' ? 'vlm.conditionYes' : v === 'no' ? 'vlm.conditionNo' : 'vlm.conditionUnknown')
+  return <div className={styles.hint}>
+    <strong>{t('vlm.conditions')}</strong>
+    <ul>{conditions.map(c => <li key={c.index}>
+      {criteria?.[c.index] ?? `#${c.index}`} · {label(c.value)}
+      {c.evidenceTimeSec != null && <button onClick={() => onSeek(c.evidenceTimeSec as number)}>{t('vlm.evidenceAt')} {c.evidenceTimeSec.toFixed(2)}s</button>}
+    </li>)}</ul>
+  </div>
+}
+
 export function VlmPanel({ file, eventsConfig, basicRunning, onBusyChange }: {
   file: File | null; eventsConfig: EventsConfig; basicRunning: boolean; onBusyChange: (busy: boolean) => void
 }) {
@@ -43,12 +58,14 @@ export function VlmPanel({ file, eventsConfig, basicRunning, onBusyChange }: {
   const [offset, setOffset] = useState(0)
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [uploadProgress, setUploadProgress] = useState<{ uploaded: number; total: number } | null>(null)
   const [parameters, setParameters] = useState<VlmParameters | null>(null)
   const [expanded, setExpanded] = useState('')
   const [source, setSource] = useState('')
   const videoRef = useRef<HTMLVideoElement>(null)
   const uploadRef = useRef<{ file: File; videoId: string } | null>(null)
   const isBusy = submitting || runs.some(r => activeVlm(r.state))
+  const seek = (sec: number) => { if (videoRef.current) videoRef.current.currentTime = Math.max(0, sec - 1) }
 
   const refresh = useCallback(async (signal?: AbortSignal) => {
     const list = await apiVlm<VlmRun[]>('/runs', { signal })
@@ -103,11 +120,11 @@ export function VlmPanel({ file, eventsConfig, basicRunning, onBusyChange }: {
       const selection = await rulesRef.current.prepare()
       let videoId = uploadRef.current?.file === file ? uploadRef.current.videoId : ''
       if (!videoId) {
-        const form = new FormData()
-        form.append('file', file)
-        const video = await apiVlm<{ videoId: string }>('/videos', { method: 'POST', body: form })
+        setUploadProgress({ uploaded: 0, total: file.size })
+        const video = await apiVlmUploadChunked(file, setUploadProgress)
         videoId = video.videoId
         uploadRef.current = { file, videoId }
+        setUploadProgress(null)
       }
       const created = await apiVlm<{ runId: string }>('/runs/from-rules', {
         method: 'POST', headers: { 'content-type': 'application/json' },
@@ -124,7 +141,7 @@ export function VlmPanel({ file, eventsConfig, basicRunning, onBusyChange }: {
     } catch (e) {
       setError(String(e))
       onBusyChange(false)
-    } finally { setSubmitting(false) }
+    } finally { setSubmitting(false); setUploadProgress(null) }
   }
 
   async function cancel() {
@@ -142,7 +159,7 @@ export function VlmPanel({ file, eventsConfig, basicRunning, onBusyChange }: {
     <CueSettings />
     <AnalysisParameters disabled={isBusy} onChange={setParameters} />
     <div className={styles.toolbar}>
-      <button disabled={!file || !parameters || !pois.length || basicRunning || isBusy || rulesState.busy || !rulesState.ready} onClick={() => void start()}>{submitting ? t('vlm.uploading') : rulesState.dirty ? t('eventRules.saveAndStart') : t('vlm.start')}</button>
+      <button disabled={!file || !parameters || !pois.length || basicRunning || isBusy || rulesState.busy || !rulesState.ready} onClick={() => void start()}>{submitting ? (uploadProgress ? `${t('vlm.uploading')} ${Math.round(uploadProgress.uploaded / Math.max(1, uploadProgress.total) * 100)}%` : t('vlm.uploading')) : rulesState.dirty ? t('eventRules.saveAndStart') : t('vlm.start')}</button>
       <span className={styles.hint}>{pois.length} POI · {file?.name || t('vlm.chooseVideo')}</span>
     </div>
     <div className={styles.toolbar}>
@@ -154,6 +171,7 @@ export function VlmPanel({ file, eventsConfig, basicRunning, onBusyChange }: {
     {run && <div role="status">
       {t(`vlm.${run.state}`)} · {run.progress?.sampledFrames ?? 0} {t('vlm.frames')} · {run.progress?.candidateCount ?? 0} {t('vlm.candidates')} · {run.progress?.completedRequests ?? 0}/{run.progress?.totalRequests ?? 0} {t('vlm.judgments')}
       {run.state === 'tracking' && <progress max={1} value={run.progress?.trackingFraction ?? 0} />}
+      {run.state === 'understanding' && (run.progress?.segmentCount ?? 0) > 1 && <span className={styles.hint}>{' '}{t('vlm.segment')} {(run.progress?.currentSegment ?? 0) + 1}/{run.progress?.segmentCount}</span>}
       {run.summary?.reason === 'no_candidates' && <p>{t('vlm.noCandidates')}</p>}
       {run.summary?.dryRun && <p>{t('vlm.dryRun')}</p>}
     </div>}
@@ -174,6 +192,7 @@ export function VlmPanel({ file, eventsConfig, basicRunning, onBusyChange }: {
         {result.cueEvidence ? ` · ${t('vlm.cueState')}=${result.cueEvidence.state}${result.cueEvidence.onsetSec != null ? ` @${result.cueEvidence.onsetSec.toFixed(2)}s` : ''}` : ''}
       </div>}
       <div>{result.description}</div>
+      <ConditionList conditions={result.conditions} criteria={result.eventCriteria} onSeek={seek} />
       <ModelExplanation videoDescription={result.videoDescription} reason={result.reason} />
       {result.modelDecision && result.modelDecision !== result.decision && <div className={styles.hint}>
         {t('vlm.originalDecision')}: {t(`vlm.${result.modelDecision}`)}
@@ -185,6 +204,7 @@ export function VlmPanel({ file, eventsConfig, basicRunning, onBusyChange }: {
       {expanded === result.resultId && (result.segments || []).map((segment, index) => <div key={index}>
         <p>{segment.window.startSec.toFixed(2)}–{segment.window.endSec.toFixed(2)}s</p>
         <ModelExplanation videoDescription={segment.videoDescription} reason={segment.reason} />
+        <ConditionList conditions={segment.conditions} criteria={result.eventCriteria} onSeek={seek} />
         {segment.previewPath && <EvidenceImage runId={runId} path={segment.previewPath} />}
       </div>)}
     </article>)}
