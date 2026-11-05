@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import re
 import shutil
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Literal
@@ -72,7 +73,7 @@ def _entry(kind: Kind, path: Path):
     meta = _read(_metadata(kind, path))
     identifier = path.stem if kind == "video" else path.name
     original = identifier
-    state, count, size, active = "ready", None, None, False
+    state, count, size, active, duration_sec = "ready", None, None, False, None
     date = path.stat().st_mtime
     if kind == "video":
         original = meta.get("originalFilename") or path.name
@@ -85,9 +86,16 @@ def _entry(kind: Kind, path: Path):
         active = state not in vlm_jobs.TERMINAL
         count = status.get("summary", {}).get("resultCount")
         date = _timestamp(status.get("startedAt"), date)
+        started = status.get("startedAt")
+        if started is not None:
+            start_ts = _timestamp(started, None)
+            if start_ts is not None:
+                finished = status.get("finishedAt")
+                end_ts = _timestamp(finished, time.time()) if finished is not None else time.time()
+                duration_sec = max(0.0, end_ts - start_ts)
     return {"kind": kind, "id": identifier, "name": meta.get("displayName") or original,
             "originalName": original, "state": state, "createdAt": date,
-            "sizeBytes": size, "resultCount": count, "active": active}
+            "sizeBytes": size, "resultCount": count, "active": active, "durationSec": duration_sec}
 
 
 @router.get("")

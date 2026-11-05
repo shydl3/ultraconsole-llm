@@ -3,7 +3,7 @@ import { apiLibrary } from '../../api/client'
 import { useT } from '../../i18n'
 import { useLocaleStore } from '../../i18n/store'
 import { useUiStore } from '../../store/useUiStore'
-import { formatBytes, libraryKey, libraryPath, type LibraryItem, type LibraryKind, type LibraryList } from '../../utils/library'
+import { formatBytes, formatDuration, libraryKey, libraryPath, type LibraryItem, type LibraryKind, type LibraryList } from '../../utils/library'
 import { LibraryDetail } from './LibraryDetail'
 import styles from './LibraryPage.module.css'
 
@@ -117,13 +117,14 @@ export function LibraryPage() {
           <table>
             <thead><tr>
               <th><input type="checkbox" aria-label={t('library.selectPage')} disabled={!selectable.length || loading} checked={selectable.length > 0 && selectable.every(item => checked.has(libraryKey(item)))} onChange={e => setSelected(e.target.checked ? selectable : [])} /></th>
-              <th>{t('library.name')}</th><th>{t('library.state')}</th><th>{t('library.date')}</th><th>{t('library.size')}</th><th>{t('library.actions')}</th>
+              <th>{t('library.name')}</th><th>{t('library.state')}</th><th>{t('library.date')}</th><th>{t('library.duration')}</th><th>{t('library.size')}</th><th>{t('library.actions')}</th>
             </tr></thead>
             <tbody>{list?.items.map(item => <tr key={libraryKey(item)} className={opened && libraryKey(opened) === libraryKey(item) ? styles.activeRow : ''}>
               <td><input type="checkbox" aria-label={`${t('library.select')} ${item.name}`} disabled={item.active || loading} checked={checked.has(libraryKey(item))} onChange={e => select(item, e.target.checked)} /></td>
               <td><button className={styles.name} onClick={() => setOpened(item)}>{item.name}</button><span className={styles.subline}>{t(`library.${item.kind}`)} · {item.id.slice(-12)}</span></td>
               <td><span className={item.active ? styles.running : styles.badge}>{['ready', 'running', 'unknown'].includes(item.state) ? t(`library.${item.state}`) : t(`vlm.${item.state}`)}</span></td>
               <td className={styles.date}>{new Date(item.createdAt * 1000).toLocaleString()}</td>
+              <td className={styles.date}>{formatDuration(item.durationSec, t)}{item.active && item.durationSec != null ? ` · ${t('library.inProgress')}` : ''}</td>
               <td>{item.kind === 'video' ? formatBytes(item.sizeBytes) : item.resultCount == null ? '—' : t('library.resultCount', { count: item.resultCount })}</td>
               <td><div className={styles.rowActions}>
                 <button onClick={() => setOpened(item)}>{t('library.open')}</button>

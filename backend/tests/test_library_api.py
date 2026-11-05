@@ -99,6 +99,18 @@ def test_delete_video_removes_metadata_alias_and_invalidates_session(client):
     assert client.get('/api/library?kind=video').json()['total'] == 0
 
 
+def test_display_name_and_duration(client):
+    write(vlm.DATA_ROOT / "runs/timed/status.json", {
+        "runId": "timed", "state": "completed", "videoId": "source1", "fileName": "a.mp4",
+        "startedAt": 1000, "finishedAt": 1065,
+    })
+    write(vlm.DATA_ROOT / "runs/timed/library.json", {"displayName": "a.mp4_20261105_1730"})
+    item = client.get('/api/library/vlm/timed').json()['item']
+    assert item['name'] == 'a.mp4_20261105_1730'
+    assert item['originalName'] == 'a.mp4'
+    assert item['durationSec'] == 65
+
+
 def test_auth_and_path_guards(client, tmp_path):
     assert TestClient(main.app).get('/api/library').status_code == 401
     assert TestClient(main.app).delete('/api/library/video/legacy-preview').status_code == 401

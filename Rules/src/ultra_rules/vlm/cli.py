@@ -5,6 +5,7 @@ import json
 import os
 import shutil
 import sys
+import time
 import uuid
 from pathlib import Path
 
@@ -32,7 +33,10 @@ def prepare(run_dir: Path, request: RunRequest, source: Path, video: dict, data_
     write_json(run_dir / "manifest.json", {"version": VERSION, "sourceSha256": video["sha256"],
                                            "configuration": config, "createdBy": "ultra_rules.vlm"})
     write_json(run_dir / "status.json", {"runId": run_dir.name, "videoId": request.videoId,
-                                         "fileName": video["fileName"], "state": "queued"})
+                                         "fileName": video["fileName"], "state": "queued", "startedAt": time.time()})
+    # Library display name: <video name>_<timestamp to minute>, so each run is
+    # identifiable without relying on the internal random run id.
+    write_json(run_dir / "library.json", {"displayName": f"{video['fileName']}_{time.strftime('%Y%m%d_%H%M')}"})
     return config
 
 

@@ -97,6 +97,7 @@ runner.py 依次执行三个子进程阶段：
 | P1② 结构化条件输出 | 模型逐条件 `status + evidenceTimeSec`，`results.py` 合取真值表算 decision（`model-decision-v5`）；前端逐条件证据展示 | ✅ 已完成 |
 | P1③ 默认否认提示词 | 去衣着/外貌、默认否认、3 个 few-shot、输出含 conditions（`target-event-described-json-v6`） | ✅ 已完成 |
 | 控制台启动自选设备/模型 | 后端 lifespan 自动选 CUDA（不可用回退 CPU）+ 加载 `yolo11m-pose.pt`；`GET /api/state` 回显；前端下拉/按钮仍可手动切换 | ✅ 已完成 |
+| 库记录命名 + 处理时长 | 分析记录展示名 = 原视频名 + 分钟级时间戳（`library.json` displayName）；计时从「开始分析」起算，库列表/详情显示时长 | ✅ 已完成 |
 | P1（其余：证据 / 模型） | 高分辨率 ROI 抽帧、4B/8B、self-consistency、置信度校准 | ⬜ 待做 |
 | P2（评测 / 生产化） | 标注集、指标、人工复核、监控 | ⬜ 待做 |
 
@@ -110,6 +111,7 @@ runner.py 依次执行三个子进程阶段：
 6. **入口方向翻转只作用于最新画的一条计数线**。
 7. **仅移除 Webhook**；实时控制台（经典 CV 检测/计数/监控）与基础分析保留。
 8. **启动即就绪，无需手动选设备/模型**：后端启动时（FastAPI `lifespan` → `_autostart`）自动选 CUDA（不可用回退 CPU）并加载 `yolo11m-pose.pt`；前端 `ControlPanel` 挂载读 `GET /api/state` 回显当前引擎与模型，Model Hub 下拉与 CPU/CUDA 按钮仍可手动切换。VLM 分析侧 `poseDevice` 默认 `cuda`、姿态模型固定 `yolo11m-pose.pt`。可用 `ULTRA_AUTOSTART / ULTRA_DEFAULT_MODEL / ULTRA_DEVICE` 配置；自动选择失败只记日志、降级为 CPU/无模型，不阻塞启动。
+9. **库记录展示名与处理时长语义**：VLM 记录展示名 = `原视频名_YYYYMMDD_HHMM`（分钟级，如 `监控.mp4_20261105_1730`），由 `prepare()` 写 `library.json` 的 `displayName`，内部 `run_id` 不再作展示主标识；处理时长 `startedAt` 在 `prepare()`（用户点「开始分析」那一刻）写入 `status.json`，`runner` 不得重置，`durationSec = finishedAt(或当前时间) - startedAt`，运行中任务显示「进行中」。
 
 ### 4.2 本轮变更清单（P1②③ 结构化条件输出 + 控制台启动自选）
 
@@ -128,6 +130,13 @@ runner.py 依次执行三个子进程阶段：
 - 前端 `contracts.ts`（`ConsoleBootstrap`）+ `client.ts`（`apiGetState`）+ `ControlPanel.tsx`（挂载同步 engine/model，下拉与按钮保留）。
 - 测试：`conftest.py` autouse 关闭 autostart；新增 `test_autostart.py`（/api/state、优先 cuda、回退 cpu）。
 - 验证：后端 pytest 53 通过 + 1 skip、ruff 通过、前端 build/lint/test 30 通过；重启后 `GET /api/state` 实测回显 `cuda` + `yolo11m-pose.pt`。
+
+### 4.3 本轮变更清单（库记录命名 + 处理时长）
+
+- **展示名 = 原视频名 + 分钟级时间戳**：`cli.py` 的 `prepare()` 创建任务时写 `run_dir/library.json` 的 `displayName = <fileName>_<YYYYMMDD_HHMM>`（如 `监控.mp4_20261105_1730`）；`library_api._entry()` 优先取 `displayName`，内部 `run_id`（`vlm-<uuid>`）仅作目录/URL/去重，不再作展示主标识。旧任务无 `library.json` 时仍显示原文件名。
+- **计时器与处理时长**：`prepare()` 写 `status.json` 的 `startedAt`（用户点「开始分析」那一刻），`runner.run()` 改为沿用该值不重置；`library_api._entry()` 计算 `durationSec = finishedAt(或当前时间) - startedAt` 并随每条记录返回。
+- 前端：`utils/library.ts` 的 `LibraryItem` 增加 `durationSec` 与 `formatDuration()`（时/分/秒、中英双语）；`LibraryPage` 新增「处理时长」列、`LibraryDetail` 显示时长，运行中任务标注「进行中」。
+- 测试：新增 `test_display_name_and_duration`（displayName 时间戳 + durationSec 精确断言）。验证：后端 pytest 137 passed + 1 skip、ruff 通过、前端 build/lint/test 30 通过。
 
 ---
 
@@ -248,7 +257,7 @@ PYTHONPATH=Rules/src python -m ultra_rules.vlm.cli calibrate \
 | `Rules/src/ultra_rules/vlm/results.py` | 解析 / 裁决（`decision_from_conditions` 合取真值表 + 证据校验降级）/ 聚合 |
 | `backend/app/vlm_api.py` | VLM 相关 HTTP 接口 |
 | `backend/app/event_rules.py` | 规则库 CRUD + ManagedRun + resolve |
-| `backend/app/library_api.py` / `video_api.py` | 记录管理 / 视频预览转码 |
+| `backend/app/library_api.py` / `video_api.py` | 记录管理（展示名/处理时长 `durationSec`）/ 视频预览转码 |
 | `backend/app/main.py` | FastAPI 入口：VLM/视频/库路由 + 实时推理接口（`/api/models` `/api/state` `/api/params` `/api/system/stats` `/ws/infer`）+ 启动 `lifespan` 自动选设备/加载默认模型 |
 | `backend/app/infer_runtime.py` / `devices.py` / `state.py` / `config.py` / `system_stats.py` / `logging_store.py` / `schemas.py` | 经典 CV 实时推理运行时（模型加载、设备、参数、启动自选配置、系统状态、日志、Schema）|
 

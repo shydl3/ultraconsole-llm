@@ -4,7 +4,7 @@ import { ModelExplanation } from '../vlm/ModelExplanation'
 import { useEffect, useRef, useState } from 'react'
 import { apiLibrary, apiLibraryMedia } from '../../api/client'
 import { useT } from '../../i18n'
-import { libraryPath, type LibraryDetail as Detail, type LibraryItem } from '../../utils/library'
+import { formatDuration, libraryPath, type LibraryDetail as Detail, type LibraryItem } from '../../utils/library'
 import styles from './LibraryPage.module.css'
 
 function Media({ url, image = false, name }: { url: string; image?: boolean; name: string }) {
@@ -54,6 +54,7 @@ export function LibraryDetail({ item, onClose, revision }: { item: LibraryItem; 
       <button onClick={onClose} aria-label={t('library.close')}>×</button>
     </div>
     <p className={styles.muted}>{t(`library.${item.kind}`)} · {item.id}</p>
+    <p className={styles.muted}>{t('library.duration')}: {formatDuration(item.durationSec, t)}{item.active && item.durationSec != null ? ` (${t('library.inProgress')})` : ''}</p>
     {error && <p role="alert" className={styles.error}>{error}</p>}
     {!detail && !error && <p>{t('library.loading')}</p>}
     {videos.length > 1 && <select aria-label={t('library.sourceVideo')} value={video?.id || ''} onChange={e => setVideoId(e.target.value)}>

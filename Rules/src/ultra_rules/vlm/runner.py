@@ -25,7 +25,9 @@ def run(run_dir: Path):
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     child = None
     cancelled = False
-    started = time.time()
+    # Preserve the timer set when the run was queued (in prepare), so the
+    # measured duration starts from "开始分析" rather than worker startup.
+    started = read_json(run_dir / "status.json").get("startedAt") or time.time()
 
     def signal_cancel(_signum, _frame):
         nonlocal cancelled
