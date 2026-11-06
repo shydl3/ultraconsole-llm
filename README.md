@@ -119,6 +119,16 @@ conda activate qwen3vl-bf16
 pip install torch transformers accelerate av pillow numpy qwen-vl-utils
 ```
 
+> **WSL 本机开发可以只用一个环境**（少维护一套 conda）：
+>
+> ```bash
+> conda activate ultraconsole
+> pip install -r backend/requirements-wsl.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+> ```
+>
+> 然后把 `backend/.env` 的 `VLM_PYTHON` 指向同一个解释器（`.../envs/ultraconsole/bin/python`）。
+> Docker 交付仍使用 backend + qwen 两个独立 venv，互不影响。
+
 ### 2. 放置模型权重
 
 | 模型 | 用途 | 位置 |

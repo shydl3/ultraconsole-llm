@@ -1,0 +1,44 @@
+# WSL 开发环境（单环境）：后端 + YOLO 姿态 + Qwen3-VL
+#
+# 安装（大陆直连，torch 也从同一 PyPI 镜像安装，Linux wheel 自带 CUDA 依赖）：
+#   /home/user/miniconda3/envs/ultraconsole/bin/pip install \
+#     -r backend/requirements-wsl.txt \
+#     -i https://pypi.tuna.tsinghua.edu.cn/simple
+#
+# 安装后把 backend/.env 的 VLM_PYTHON 指向同一解释器（单环境模式）：
+#   VLM_PYTHON=/home/user/miniconda3/envs/ultraconsole/bin/python
+#
+# 说明：Docker 交付仍使用 backend + qwen 两个独立 venv；
+# 本文件只用于 WSL 本机开发，方便一个环境里同时 import torch / ultralytics / transformers。
+
+# --- PyTorch / 姿态 ---
+torch==2.14.0
+torchvision==0.29.0
+ultralytics==8.3.162
+
+# --- 后端服务 ---
+fastapi==0.115.14
+uvicorn[standard]==0.34.3
+python-multipart==0.0.20
+pydantic==2.11.7
+httpx==0.28.1
+
+# --- 视频 / 图像 ---
+opencv-python==4.11.0.86
+av==16.0.1
+numpy==2.1.1
+Pillow==11.2.1
+
+# --- 系统 / GPU ---
+psutil==7.0.0
+nvidia-ml-py==12.575.51
+
+# --- Qwen3-VL 推理 ---
+transformers==4.57.6
+accelerate==1.12.0
+huggingface_hub==0.36.2
+
+# --- 开发 / 测试 ---
+pytest==8.4.1
+pytest-asyncio==1.0.0
+ruff==0.12.2

@@ -1,3 +1,10 @@
-# Optional offline semantic analysis. Preserve the main YOLO / Torch environment.
+# 双环境（VLM 独立 venv）时的 Qwen 依赖。
+# WSL 本机开发推荐直接用单环境：backend/requirements-wsl.txt
+# torch 由调用方单独安装（PyPI 镜像的 Linux wheel 自带 CUDA 依赖）。
+transformers==4.57.6
+accelerate==1.12.0
+huggingface_hub==0.36.2
 av==16.0.1
-# Qwen runs in VLM_PYTHON, independently of this environment.
+numpy==2.1.1
+pillow==11.2.1
+pydantic==2.11.7
