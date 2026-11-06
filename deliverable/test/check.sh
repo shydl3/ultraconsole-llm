@@ -98,5 +98,23 @@ fi
 echo "==> 模板占位符"
 if grep -q '__TAG__' "$DELIVERABLE/package/env.example"; then ok "env.example 含 __TAG__ 占位符"; else fail "env.example 缺少 __TAG__"; fi
 
+echo "==> 大陆直连默认值"
+grep -q 'PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple' "$DELIVERABLE/package/env.example" \
+  && ok "pip 默认清华镜像" || fail "pip 默认源不是清华镜像"
+grep -q 'VLM_MODEL_SOURCE=modelscope' "$DELIVERABLE/package/env.example" \
+  && ok "Qwen 默认 ModelScope" || fail "Qwen 默认源不是 ModelScope"
+grep -q 'ARG APT_MIRROR=https://mirrors.aliyun.com' "$DELIVERABLE/Dockerfile" \
+  && ok "apt 默认阿里云" || fail "apt 默认源不是阿里云"
+grep -q 'ARG NPM_REGISTRY=https://registry.npmmirror.com' "$DELIVERABLE/Dockerfile" \
+  && ok "npm 默认 npmmirror" || fail "npm 默认源不是 npmmirror"
+
+echo "==> 仅打包 YOLO11"
+if grep -RIn --exclude-dir=dist --exclude=check.sh 'yolov8' "$DELIVERABLE" >/dev/null 2>&1; then
+  grep -RIn --exclude-dir=dist --exclude=check.sh 'yolov8' "$DELIVERABLE" >&2
+  fail "交付物仍引用 yolov8"
+else
+  ok "未引用 yolov8"
+fi
+
 echo
 if [[ "$FAIL" == "0" ]]; then echo "静态检查全部通过。"; else echo "静态检查存在失败项。" >&2; exit 1; fi

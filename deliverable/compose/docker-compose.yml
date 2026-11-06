@@ -20,16 +20,20 @@ x-app-env: &app-env
   VLM_MODEL_ROOT: /models
   VLM_MODEL_PATH: ${VLM_MODEL_PATH:-/models/Qwen3-VL-2B-Instruct}
   VLM_MODEL_REPO: ${VLM_MODEL_REPO:-Qwen/Qwen3-VL-2B-Instruct}
+  VLM_MODEL_SOURCE: ${VLM_MODEL_SOURCE:-modelscope}
+  MODELSCOPE_ENDPOINT: ${MODELSCOPE_ENDPOINT:-https://modelscope.cn}
+  MODELSCOPE_REVISION: ${MODELSCOPE_REVISION:-master}
   VLM_PYTHON: /opt/ultra/envs/qwen/bin/python
   VLM_POSE_PYTHON: /opt/ultra/envs/backend/bin/python
   # setup 与 app 必须看到同一组安装参数，否则 setup.sh --check 的哈希会不一致。
-  PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.org/simple}
-  TORCH_INDEX_URL: ${TORCH_INDEX_URL:-https://download.pytorch.org/whl/cu124}
+  PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.tuna.tsinghua.edu.cn/simple}
+  # 留空 = torch 直接从上面的 PyPI 镜像安装（Linux wheel 自带 CUDA 依赖）。
+  TORCH_INDEX_URL: ${TORCH_INDEX_URL:-}
   TORCH_SPEC: ${TORCH_SPEC:-torch torchvision}
   TORCH_VERSION: ${TORCH_VERSION:-}
   PIP_NO_INDEX: ${PIP_NO_INDEX:-0}
   SKIP_MODEL_DOWNLOAD: ${SKIP_MODEL_DOWNLOAD:-0}
-  HF_ENDPOINT: ${HF_ENDPOINT:-https://huggingface.co}
+  HF_ENDPOINT: ${HF_ENDPOINT:-https://hf-mirror.com}
 
 services:
   # 一次性安装器：pip 环境进 ultra-envs 卷，权重进 ./models。

@@ -35,6 +35,14 @@ for dir in images models models/detect data offline; do
   : > "$OUT/$dir/.keep"
 done
 
+# YOLO11 姿态权重随包内置，避免大陆网络下载 GitHub。
+YOLO_SRC="$ROOT/backend/models/yolo11m-pose.pt"
+if [[ -f "$YOLO_SRC" ]]; then
+  cp -a "$YOLO_SRC" "$OUT/models/detect/yolo11m-pose.pt"
+else
+  echo "警告：未找到 $YOLO_SRC，交付包不会包含 YOLO11 权重。" >&2
+fi
+
 # Windows 友好：文本转 CRLF；PowerShell/说明文件加 UTF-8 BOM（PowerShell 5.1 需要）。
 python3 - "$OUT" <<'PY'
 import sys

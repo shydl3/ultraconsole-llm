@@ -44,6 +44,28 @@ deliverable/
 TAG=1.0.1 ./deliverable/build.sh       # 指定版本
 ```
 
+### WSL 里没有 docker CLI 时
+
+可以直接调用 Windows 侧 Docker Desktop 的 `docker.exe`（本机实测路径如下）：
+
+```bash
+DOCKER="/mnt/c/Users/<WinUser>/AppData/Local/Programs/DockerDesktop/resources/bin/docker.exe"
+CFG='C:\Users\<WinUser>\AppData\Local\Temp\uc-docker-cfg'
+mkdir -p "$(wslpath -u "$CFG")" && printf '{}\n' > "$(wslpath -u "$CFG")/config.json"
+
+git archive --format=tar HEAD | "$DOCKER" --config "$CFG" build \
+  --build-arg APT_MIRROR=https://mirrors.aliyun.com \
+  --build-arg NPM_REGISTRY=https://registry.npmmirror.com \
+  -f deliverable/Dockerfile -t ultraconsole:1.0.0 -t ultraconsole:latest -
+
+# docker save -o Windows 路径对大镜像可能卡住，用 stdout 导出
+"$DOCKER" --config "$CFG" save ultraconsole:1.0.0 > /tmp/ultraconsole.tar
+gzip -1 -c /tmp/ultraconsole.tar > deliverable/dist/images/ultraconsole-1.0.0.tar.gz
+TAG=1.0.0 ./deliverable/make-package.sh
+```
+
+`--config` 指向一个只含 `{}` 的临时配置，可绕过 Windows 侧缺失的 `docker-credential-desktop`。
+
 产物：
 
 ```
@@ -71,11 +93,13 @@ PKG_DIR=./deliverable/dist/UltraConsole-1.0.0-Win64 ./deliverable/test/gpu-smoke
 
 | 内容 | 位置 | 约 |
 |---|---|---|
-| Python 依赖（两个 venv，含 torch cu124） | 卷 `ultra-envs` | 6–8 GB |
-| Qwen3-VL-2B-Instruct | `models/Qwen3-VL-2B-Instruct` | 4.0 GB |
-| yolo11m-pose / yolov8n | `models/detect` | 50 MB |
+| Python 依赖（两个 venv，含 torch + CUDA 依赖） | 卷 `ultra-envs` | 6–8 GB |
+| Qwen3-VL-2B-Instruct（ModelScope） | `models/Qwen3-VL-2B-Instruct` | 4.0 GB |
+| YOLO11 姿态权重 | 交付包 `models/detect` | 42 MB（随包，不下载） |
 
 依赖安装完成后，requirements 不变时再次启动会直接跳过。
+
+下载源默认全部为大陆可直连地址：pip → 清华 PyPI（torch 也从同一镜像安装）、apt → 阿里云、npm → npmmirror、Qwen → ModelScope（失败自动回退 hf-mirror）；YOLO11 权重随包内置。海外部署可用 `PIP_INDEX_URL` / `HF_ENDPOINT` / `APT_MIRROR` / `NPM_REGISTRY` 覆盖。
 
 ## 更新流程
 

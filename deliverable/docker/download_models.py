@@ -1,35 +1,33 @@
 #!/usr/bin/env python3
-"""Download model weights into the mounted /models volume (idempotent)."""
+"""Download Qwen3-VL weights from mainland-reachable sources.
+
+Default: ModelScope (no redirect to overseas CDNs), fallback: hf-mirror.
+YOLO11 pose weights are shipped inside the Windows delivery package; they are
+never downloaded here. If missing, setup fails with an explicit hint.
+"""
 from __future__ import annotations
 
 import json
 import os
 import shutil
 import sys
-import time
+import urllib.parse
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 MODELS = Path(os.environ.get("MODELS_DIR", "/models"))
 DETECT = MODELS / "detect"
 
 QWEN_REPO = os.environ.get("VLM_MODEL_REPO", "Qwen/Qwen3-VL-2B-Instruct")
-QWEN_TARGET = Path(
-    os.environ.get("VLM_MODEL_PATH") or MODELS / QWEN_REPO.rsplit("/", 1)[-1]
-)
+QWEN_TARGET = Path(os.environ.get("VLM_MODEL_PATH") or MODELS / QWEN_REPO.rsplit("/", 1)[-1])
 
-YOLO_FILES = {
-    # 人员姿态跟踪，VLM 分析必需。
-    "yolo11m-pose.pt": (
-        "https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11m-pose.pt",
-        True,
-    ),
-    # 经典 CV 控制台的默认检测模型，可选。
-    "yolov8n.pt": (
-        "https://github.com/ultralytics/assets/releases/download/v8.2.0/yolov8n.pt",
-        False,
-    ),
-}
+MODEL_SOURCE = os.environ.get("VLM_MODEL_SOURCE", "modelscope").strip().lower()
+MS_ENDPOINT = os.environ.get("MODELSCOPE_ENDPOINT", "https://modelscope.cn").rstrip("/")
+MS_REVISION = os.environ.get("MODELSCOPE_REVISION", "master")
+HF_ENDPOINT = os.environ.get("HF_ENDPOINT", "https://hf-mirror.com").rstrip("/")
+
+YOLO_NAME = "yolo11m-pose.pt"
 
 
 def qwen_ready(path: Path) -> bool:
@@ -45,57 +43,118 @@ def qwen_ready(path: Path) -> bool:
     return (path / "model.safetensors").is_file()
 
 
-def download_qwen() -> None:
-    if qwen_ready(QWEN_TARGET):
-        print(f"[models] 已存在：{QWEN_TARGET}", flush=True)
-        return
-    try:
-        from huggingface_hub import snapshot_download
-    except ImportError:
-        raise SystemExit("[models] 缺少 huggingface_hub，无法下载 Qwen 权重") from None
+def _urlopen(url: str, timeout: int = 120):
+    request = urllib.request.Request(url, headers={"User-Agent": "ultraconsole-setup"})
+    return urllib.request.urlopen(request, timeout=timeout)
 
-    print(f"[models] 下载 {QWEN_REPO} -> {QWEN_TARGET}", flush=True)
-    QWEN_TARGET.mkdir(parents=True, exist_ok=True)
+
+def _download(url: str, target: Path, expected_size: int | None = None) -> str:
+    if target.is_file() and target.stat().st_size > 0:
+        if expected_size is None or target.stat().st_size == expected_size:
+            return "已存在"
+
+    tmp = target.with_name(target.name + ".part")
+    with _urlopen(url) as source, tmp.open("wb") as sink:
+        done = 0
+        next_report = 256 * 1024 * 1024
+        while chunk := source.read(1024 * 1024):
+            sink.write(chunk)
+            done += len(chunk)
+            if done >= next_report:
+                print(f"[models]   {target.name}: {done / 1e9:.2f} GB", flush=True)
+                next_report += 256 * 1024 * 1024
+
+    if expected_size is not None and tmp.stat().st_size != expected_size:
+        actual = tmp.stat().st_size
+        tmp.unlink(missing_ok=True)
+        raise OSError(f"大小不符（期望 {expected_size}，实际 {actual}）")
+
+    tmp.replace(target)
+    return "下载完成"
+
+
+def _modelscope_files() -> list[dict]:
+    query = urllib.parse.urlencode({"Revision": MS_REVISION, "Recursive": "True"})
+    url = f"{MS_ENDPOINT}/api/v1/models/{QWEN_REPO}/repo/files?{query}"
+    with _urlopen(url, 60) as response:
+        payload = json.load(response)
+    if not payload.get("Success"):
+        raise RuntimeError(payload.get("Message") or "ModelScope 返回失败")
+    files = (payload.get("Data") or {}).get("Files") or []
+    blobs = [item for item in files if item.get("Type") == "blob" and item.get("Path")]
+    if not blobs:
+        raise RuntimeError("ModelScope 文件列表为空")
+    return blobs
+
+
+def download_modelscope() -> None:
+    blobs = _modelscope_files()
+    total = sum(int(item.get("Size") or 0) for item in blobs)
+    print(f"[models] ModelScope: {len(blobs)} 个文件，共 {total / 1e9:.2f} GB", flush=True)
+
+    def fetch(item: dict) -> str:
+        relative = str(item["Path"])
+        target = QWEN_TARGET / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        quoted = urllib.parse.quote(relative, safe="/")
+        url = f"{MS_ENDPOINT}/models/{QWEN_REPO}/resolve/{MS_REVISION}/{quoted}"
+        size = int(item["Size"]) if item.get("Size") else None
+        return _download(url, target, size)
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        futures = {pool.submit(fetch, item): item for item in blobs}
+        for future in as_completed(futures):
+            name = futures[future]["Path"]
+            try:
+                state = future.result()
+            except Exception as exc:  # noqa: BLE001 - 汇总后统一报错
+                raise RuntimeError(f"{name}: {exc}") from exc
+            print(f"[models] {name}: {state}", flush=True)
+
+
+def download_hf() -> None:
+    os.environ["HF_ENDPOINT"] = HF_ENDPOINT
+    from huggingface_hub import snapshot_download
+
+    print(f"[models] HuggingFace 镜像 {HF_ENDPOINT}：{QWEN_REPO}", flush=True)
     snapshot_download(repo_id=QWEN_REPO, local_dir=str(QWEN_TARGET), max_workers=4)
-    if not qwen_ready(QWEN_TARGET):
-        raise SystemExit(f"[models] 下载完成但权重不完整：{QWEN_TARGET}")
 
 
-def download_file(name: str, url: str) -> None:
-    target = DETECT / name
+def ensure_yolo() -> None:
+    target = DETECT / YOLO_NAME
     if target.is_file() and target.stat().st_size > 1_000_000:
         print(f"[models] 已存在：{target}", flush=True)
         return
-
-    tmp = target.with_name(target.name + ".part")
-    for attempt in range(1, 4):
-        try:
-            print(f"[models] 下载 {name}（第 {attempt} 次）", flush=True)
-            request = urllib.request.Request(url, headers={"User-Agent": "ultraconsole-setup"})
-            with urllib.request.urlopen(request, timeout=120) as source, tmp.open("wb") as sink:
-                shutil.copyfileobj(source, sink, length=1024 * 1024)
-            if tmp.stat().st_size < 1_000_000:
-                raise OSError("下载文件过小")
-            tmp.replace(target)
-            return
-        except Exception as exc:  # noqa: BLE001 - 网络错误需要重试并汇报
-            print(f"[models] 下载失败：{exc}", file=sys.stderr, flush=True)
-            tmp.unlink(missing_ok=True)
-            if attempt < 3:
-                time.sleep(3)
-    raise SystemExit(f"[models] 无法下载 {name}，可手动放到 {DETECT / name}")
+    raise SystemExit(
+        f"[models] 缺少 {target}。\n"
+        "[models] Windows 交付包已内置该文件；其他部署方式请手动把 "
+        f"{YOLO_NAME} 放到 {DETECT} 后重试。"
+    )
 
 
 def main() -> None:
     DETECT.mkdir(parents=True, exist_ok=True)
-    download_qwen()
-    for name, (url, required) in YOLO_FILES.items():
-        try:
-            download_file(name, url)
-        except SystemExit:
-            if required:
-                raise
-            print(f"[models] 可选模型 {name} 下载失败，已跳过", file=sys.stderr, flush=True)
+
+    if qwen_ready(QWEN_TARGET):
+        print(f"[models] 已存在：{QWEN_TARGET}", flush=True)
+    else:
+        errors: list[str] = []
+        if MODEL_SOURCE in {"modelscope", "auto", ""}:
+            try:
+                download_modelscope()
+            except Exception as exc:  # noqa: BLE001 - 允许切到备用源
+                errors.append(f"ModelScope: {exc}")
+                print(f"[models] ModelScope 下载失败，尝试备用源：{exc}", file=sys.stderr, flush=True)
+        if not qwen_ready(QWEN_TARGET) and MODEL_SOURCE in {"huggingface", "auto", "modelscope", ""}:
+            try:
+                download_hf()
+            except Exception as exc:  # noqa: BLE001
+                errors.append(f"HuggingFace: {exc}")
+                print(f"[models] HuggingFace 下载失败：{exc}", file=sys.stderr, flush=True)
+        if not qwen_ready(QWEN_TARGET):
+            raise SystemExit("[models] Qwen 权重不完整：" + "；".join(errors) if errors else "[models] Qwen 权重不完整")
+
+    ensure_yolo()
 
 
 if __name__ == "__main__":

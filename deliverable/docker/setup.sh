@@ -13,7 +13,9 @@ REQ_VLM=/opt/ultra/requirements/vlm.txt
 STAMP="$ENVS_DIR/.stamp"
 SETUP_SCHEMA=1
 
-TORCH_INDEX_URL="${TORCH_INDEX_URL:-https://download.pytorch.org/whl/cu124}"
+PIP_INDEX_URL="${PIP_INDEX_URL:-https://pypi.tuna.tsinghua.edu.cn/simple}"
+# 留空表示 torch 直接从上面的 PyPI 镜像安装（Linux wheel 自带 CUDA 依赖）。
+TORCH_INDEX_URL="${TORCH_INDEX_URL:-}"
 TORCH_SPEC="${TORCH_SPEC:-torch torchvision}"
 TORCH_VERSION="${TORCH_VERSION:-}"
 
@@ -75,10 +77,10 @@ else
   install_torch() {
     local python=$1
     local torch_args=("${PIP_ARGS[@]}")
-    if [[ "${PIP_NO_INDEX:-0}" != "1" ]]; then
+    if [[ "${PIP_NO_INDEX:-0}" != "1" && -n "$TORCH_INDEX_URL" ]]; then
       torch_args+=(--index-url "$TORCH_INDEX_URL")
     fi
-    log "安装 PyTorch（${TORCH_INDEX_URL}）"
+    log "安装 PyTorch（${TORCH_INDEX_URL:-PyPI 镜像 $PIP_INDEX_URL}）"
     if [[ -n "$TORCH_VERSION" ]]; then
       "$python" -m pip install "${torch_args[@]}" "torch==${TORCH_VERSION}" torchvision
     else
@@ -120,5 +122,10 @@ from ultra_rules.vlm.models import validate_model_path
 
 print("[ultraconsole] 模型可用：", validate_model_path(sys.argv[1]))
 PY
+
+if [[ ! -f /models/detect/yolo11m-pose.pt ]]; then
+  die "缺少 YOLO11 姿态权重 /models/detect/yolo11m-pose.pt。Windows 交付包已内置；其他部署方式请手动放入后重试。"
+fi
+log "YOLO11 权重就绪：/models/detect/yolo11m-pose.pt"
 
 log "准备完成。启动命令：docker compose up -d"

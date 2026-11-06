@@ -31,6 +31,8 @@ echo "==> 构建镜像 ${IMAGE}:${TAG}"
 docker build \
   -f "$ROOT/deliverable/Dockerfile" \
   --build-arg "ULTRA_VERSION=${TAG}" \
+  --build-arg "APT_MIRROR=${APT_MIRROR:-https://mirrors.aliyun.com}" \
+  --build-arg "NPM_REGISTRY=${NPM_REGISTRY:-https://registry.npmmirror.com}" \
   -t "${IMAGE}:${TAG}" \
   -t "${IMAGE}:latest" \
   "$ROOT"

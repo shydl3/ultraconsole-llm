@@ -218,6 +218,7 @@ export ULTRA_API_TOKEN=your-token   # 可选，启用鉴权
 
 产物在 `deliverable/dist/`。Windows 用户解压后双击 `启动.bat` 即可（首次会下载依赖与权重）。
 构建说明见 `deliverable/README.md`，部署步骤见 `deliverable/docs/部署手册.md`。
+依赖与权重默认使用国内直连源（清华 PyPI / 阿里云 apt / npmmirror / ModelScope），YOLO11 权重随包内置，无需代理。
 
 在 Linux + NVIDIA Container Toolkit 上也可以直接复用同一份 compose：
 

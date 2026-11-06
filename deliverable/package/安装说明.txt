@@ -27,14 +27,16 @@ UltraConsole VLM 交付包（Windows 11 x64）
 第 4 步：双击「启动.bat」
   首次启动会自动完成三件事：
     (1) 导入镜像（1-3 分钟）
-    (2) 下载 Python 依赖（约 6-8 GB，取决于网速）
-    (3) 下载 Qwen 语义模型与 YOLO 姿态模型（约 4.5 GB）
+    (2) 从国内 PyPI 镜像安装 Python 依赖（约 6-8 GB，取决于网速）
+    (3) 从 ModelScope 下载 Qwen 语义模型（约 4 GB）
+  YOLO11 姿态模型已随交付包内置（models\detect\yolo11m-pose.pt），不联网下载。
   全部完成后会自动打开浏览器 http://localhost:8001。
 
-  如果网络较慢，可先编辑本目录下的 .env 文件，把
-    PIP_INDEX_URL 改成 https://pypi.tuna.tsinghua.edu.cn/simple
-    HF_ENDPOINT   改成 https://hf-mirror.com
-  再双击「启动.bat」。
+  默认使用的都是大陆可直连地址，不需要代理：
+    PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+    VLM_MODEL_SOURCE=modelscope
+    HF_ENDPOINT=https://hf-mirror.com
+  如果某个源不稳定，可编辑本目录下的 .env 切换后重新双击「启动.bat」。
 
 三、日常使用
 ------------
@@ -62,7 +64,9 @@ UltraConsole VLM 交付包（Windows 11 x64）
    重新双击「启动.bat」，然后访问 http://localhost:8080。
 
 4) 首次启动下载很慢或失败
-   按上面的镜像源配置修改 .env；或在有网络的机器上准备好 models 目录后整体拷贝。
+   默认已使用国内 PyPI / ModelScope。可编辑 .env 换源（例如 PIP_INDEX_URL 换成
+   https://mirrors.aliyun.com/pypi/simple/，或 VLM_MODEL_SOURCE=huggingface 走
+   hf-mirror）；也可以在别的机器准备好 models 目录后整体拷贝过来。
 
 5) 页面能开但分析报 CUDA 错误
    双击「诊断.bat」确认容器能看到显卡；在 Docker Desktop 设置中确认

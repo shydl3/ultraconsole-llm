@@ -14,7 +14,10 @@ FROM ${NODE_IMAGE} AS web
 
 WORKDIR /src/frontend
 COPY frontend/package.json frontend/package-lock.json ./
-RUN npm ci --no-audit --no-fund
+
+# 默认使用大陆可直连的构建源；海外可用 --build-arg 覆盖。
+ARG NPM_REGISTRY=https://registry.npmmirror.com
+RUN npm config set registry "$NPM_REGISTRY" && npm ci --no-audit --no-fund
 COPY frontend/ ./
 
 # 鉴权 token 需要在构建期注入前端，否则页面请求不会带 Bearer 头。
@@ -42,8 +45,13 @@ ENV PYTHONUNBUFFERED=1 \
     TZ=Asia/Shanghai
 
 # libgl1/libglib2.0-0：opencv-python；libgomp1：PyTorch；tzdata：时区。
-RUN apt-get update \
- && apt-get install -y --no-install-recommends \
+# 默认阿里云镜像（大陆直连）；海外可传 --build-arg APT_MIRROR=http://deb.debian.org。
+ARG APT_MIRROR=https://mirrors.aliyun.com
+RUN if [ "$APT_MIRROR" != "http://deb.debian.org" ]; then \
+      sed -i "s|http://deb.debian.org|${APT_MIRROR}|g" /etc/apt/sources.list.d/debian.sources; \
+    fi \
+ && apt-get -o Acquire::Retries=5 update \
+ && apt-get -o Acquire::Retries=5 install -y --no-install-recommends \
       libgl1 libglib2.0-0 libgomp1 ca-certificates tzdata \
  && rm -rf /var/lib/apt/lists/*
 
