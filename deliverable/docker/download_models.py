@@ -18,6 +18,9 @@ from pathlib import Path
 
 MODELS = Path(os.environ.get("MODELS_DIR", "/models"))
 DETECT = MODELS / "detect"
+YOLO_NAME = "yolo11m-pose.pt"
+# 容器用 /models/detect；WSL 开发用 backend/models（bootstrap 传入）。
+YOLO_PATH = Path(os.environ.get("YOLO_PATH") or (DETECT / YOLO_NAME))
 
 QWEN_REPO = os.environ.get("VLM_MODEL_REPO", "Qwen/Qwen3-VL-2B-Instruct")
 QWEN_TARGET = Path(os.environ.get("VLM_MODEL_PATH") or MODELS / QWEN_REPO.rsplit("/", 1)[-1])
@@ -26,8 +29,6 @@ MODEL_SOURCE = os.environ.get("VLM_MODEL_SOURCE", "modelscope").strip().lower()
 MS_ENDPOINT = os.environ.get("MODELSCOPE_ENDPOINT", "https://modelscope.cn").rstrip("/")
 MS_REVISION = os.environ.get("MODELSCOPE_REVISION", "master")
 HF_ENDPOINT = os.environ.get("HF_ENDPOINT", "https://hf-mirror.com").rstrip("/")
-
-YOLO_NAME = "yolo11m-pose.pt"
 
 
 def qwen_ready(path: Path) -> bool:
@@ -121,14 +122,14 @@ def download_hf() -> None:
 
 
 def ensure_yolo() -> None:
-    target = DETECT / YOLO_NAME
+    target = YOLO_PATH
     if target.is_file() and target.stat().st_size > 1_000_000:
         print(f"[models] 已存在：{target}", flush=True)
         return
     raise SystemExit(
         f"[models] 缺少 {target}。\n"
         "[models] Windows 交付包已内置该文件；其他部署方式请手动把 "
-        f"{YOLO_NAME} 放到 {DETECT} 后重试。"
+        f"{YOLO_NAME} 放到 {target.parent} 后重试。"
     )
 
 

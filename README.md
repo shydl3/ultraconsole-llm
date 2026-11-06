@@ -105,6 +105,18 @@
 - **NVIDIA GPU**，驱动支持 CUDA（WSL2 需能访问 `/dev/nvidia*`）
 - **Conda**（或等价环境管理器）与 **Node.js ≥ 20**
 
+### 一键初始化（新 WSL / Ubuntu）
+
+全新 WSL 可以直接跑：
+
+```bash
+bash scripts/bootstrap-wsl.sh
+```
+
+脚本会自动完成：安装 Miniconda / Node 22（缺什么装什么）、创建 `ultraconsole` 环境、从国内镜像安装全部依赖、`npm ci`、从 ModelScope 下载 Qwen 与 YOLO11、写入 `backend/.env`、校验 CUDA 与模型，最后执行 `./start.sh`。
+
+常用参数：`--no-start`（只安装）、`--port 5100`、`--skip-apt`、`--yolo <本地权重>`。
+
 ### 1. 创建两个 Python 环境
 
 ```bash

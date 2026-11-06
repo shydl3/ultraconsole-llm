@@ -302,6 +302,9 @@ PYTHONPATH=Rules/src python -m ultra_rules.vlm.cli calibrate \
 cd <项目根目录>
 PYTHONPATH=backend:Rules/src python -m pytest backend/tests Rules/tests
 
+# 新 WSL 一键初始化（Miniconda/Node/依赖/权重/启动）
+bash scripts/bootstrap-wsl.sh
+
 # WSL 单环境依赖（一个 requirements 同时装 torch/ultralytics/transformers）
 pip install -r backend/requirements-wsl.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
 # 然后把 backend/.env 的 VLM_PYTHON 指向同一解释器
