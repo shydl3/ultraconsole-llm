@@ -147,9 +147,10 @@ pip install torch transformers accelerate av pillow numpy qwen-vl-utils
 
 | 模型 | 用途 | 位置 |
 |---|---|---|
-| `yolo11m-pose.pt` | 人员跟踪 | `backend/models/` |
-| `yolov8n.pt` | 经典 CV 检测（可选） | `backend/models/` |
+| `yolo11m-pose.pt` | 人员跟踪（默认且唯一内置模型） | `backend/models/` |
 | `Qwen3-VL-2B-Instruct` / `4B` | 语义判定 | 项目内 `models/`（默认加载位置） |
+
+> 项目默认只加载 `yolo11m-pose.pt`。如需换用其他模型，把对应文件放进 `backend/models/`，并修改 `ULTRA_DEFAULT_MODEL`。
 
 ### 3. 配置（可选）
 
@@ -203,7 +204,7 @@ export ULTRA_API_TOKEN=your-token   # 可选，启用鉴权
 .
 ├── backend/            # FastAPI 服务（路由、运行时、规则、库）
 │   ├── app/
-│   └── models/         # yolo11m-pose.pt, yolov8n.pt
+│   └── models/         # yolo11m-pose.pt（默认模型）
 ├── models/             # 项目内模型权重（Qwen3-VL-2B/4B，默认加载位置；不入库）
 ├── Rules/              # 纯算法库（无 Web 依赖）
 │   ├── src/ultra_rules/vlm/   # 契约、跟踪、信号、判定、采样、提示词、worker
