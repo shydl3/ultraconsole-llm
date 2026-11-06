@@ -229,7 +229,7 @@ download_qwen() {
   VLM_MODEL_SOURCE=modelscope \
   HF_ENDPOINT=https://hf-mirror.com \
   PYTHONPATH="$ROOT/Rules/src" \
-    "$ENV_PY" "$ROOT/deliverable/docker/download_models.py"
+    "$ENV_PY" "$ROOT/scripts/download_models.py"
 }
 
 write_env() {

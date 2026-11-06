@@ -32,7 +32,7 @@ def ensure_device_available(device: str) -> None:
             f"(torch={torch_version}, torch CUDA build={built_cuda}, "
             f"torch.cuda.device_count()={count}, CUDA_VISIBLE_DEVICES={visible_devices!r})."
             f"{wsl_hint}"
-            " Check the NVIDIA driver and GPU passthrough (Docker/WSL), and install a CUDA-enabled "
+            " Check the NVIDIA driver and GPU passthrough (WSL), and install a CUDA-enabled "
             "PyTorch build compatible with the driver. Use CPU until torch.cuda.is_available() returns True."
         )
 

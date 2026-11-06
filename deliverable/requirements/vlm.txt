@@ -1,8 +1,0 @@
-# Qwen3-VL 推理解释器（/opt/ultra/envs/qwen）的依赖。
-# torch / torchvision 由 setup.sh 从 CUDA 索引单独安装，不在这里重复锁定。
-transformers==4.57.6
-accelerate
-av==16.0.1
-numpy==2.1.1
-pillow==11.2.1
-pydantic==2.11.7

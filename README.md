@@ -141,7 +141,7 @@ pip install torch transformers accelerate av pillow numpy qwen-vl-utils
 > ```
 >
 > 然后把 `backend/.env` 的 `VLM_PYTHON` 指向同一个解释器（`.../envs/ultraconsole/bin/python`）。
-> Docker 交付仍使用 backend + qwen 两个独立 venv，互不影响。
+> 需要双环境时再单独使用 `backend/requirements-vlm.txt`。
 
 ### 2. 放置模型权重
 
@@ -229,28 +229,5 @@ export ULTRA_API_TOKEN=your-token   # 可选，启用鉴权
 | ⬜ | 标注评测集 + precision/recall 指标 + 人工复核闭环 |
 
 > 实测处理吞吐（RTX 3080 16G）：跟踪约 **57.5 帧/秒**（≈ 视频时长 ÷ 5.75）。2 小时视频约 40–60 分钟，24 小时约 10-13 小时。
-
----
-
-## 部署（Docker / Windows 一键包）
-
-项目已把**模型权重 / 配置 / 数据**与代码分离，并提供完整的交付物生成流程：
-镜像本身不含 PyTorch 依赖与权重，首次启动自动安装到挂载卷；前端与 API 同源，只暴露 `8001`。
-
-```bash
-./deliverable/build.sh     # 构建镜像 + 导出 tar + 生成 Windows 交付包
-```
-
-产物在 `deliverable/dist/`。Windows 用户解压后双击 `启动.bat` 即可（首次会下载依赖与权重）。
-构建说明见 `deliverable/README.md`，部署步骤见 `deliverable/docs/部署手册.md`。
-依赖与权重默认使用国内直连源（清华 PyPI / 阿里云 apt / npmmirror / ModelScope），YOLO11 权重随包内置，无需代理。
-
-在 Linux + NVIDIA Container Toolkit 上也可以直接复用同一份 compose：
-
-```bash
-cd deliverable/dist/UltraConsole-1.0.0-Win64
-docker compose run -T --rm setup   # 首次：安装依赖、下载权重
-docker compose up -d              # 启动，访问 http://localhost:8001
-```
 
 ---

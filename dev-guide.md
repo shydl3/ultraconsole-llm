@@ -140,18 +140,10 @@ runner.py 依次执行三个子进程阶段：
 
 ### 4.4 路径自包含（权重与解释器）
 
-- **VLM 权重根目录**：`models.py` 的 `MODEL_ROOT` 原为 `parents[5]`（实际解析到 `/home/user`，即项目外），现改为项目内 `models/`，并支持 `VLM_MODEL_ROOT` 覆盖（容器里挂载到 `/models` 时使用）；2B/4B 权重已复制到 `models/Qwen3-VL-2B-Instruct` / `models/Qwen3-VL-4B-Instruct`，`VLM_MODEL_PATH` 仅作为单模型路径的覆盖入口。
-- **VLM 解释器**：`cli.py` 的 `qwenPython` 默认改为 `sys.executable`，不再写死开发机 conda 路径；Qwen 跑在独立环境时用 `VLM_PYTHON` 覆盖（本机放 `backend/.env`，容器由编排注入）。
+- **VLM 权重根目录**：`models.py` 的 `MODEL_ROOT` 原为 `parents[5]`（实际解析到 `/home/user`，即项目外），现改为项目内 `models/`，并支持 `VLM_MODEL_ROOT` 覆盖（外部挂载到其他路径时使用）；2B/4B 权重已复制到 `models/Qwen3-VL-2B-Instruct` / `models/Qwen3-VL-4B-Instruct`，`VLM_MODEL_PATH` 仅作为单模型路径的覆盖入口。
+- **VLM 解释器**：`cli.py` 的 `qwenPython` 默认改为 `sys.executable`，不再写死开发机 conda 路径；Qwen 跑在独立环境时用 `VLM_PYTHON` 覆盖（本机放 `backend/.env`，外部环境由环境变量注入）。
 - `.gitignore` 忽略 `models/*`（保留 `.gitkeep`）；README 权重/解释器说明与 `backend/.env.example` 已同步。
 - 验证：`/api/vlm/parameters` 返回项目内路径，2B/4B 均 `available`；后端 + Rules 测试通过。
-
-### 4.5 交付物（deliverable/）
-
-- 新增 `deliverable/`：`Dockerfile`（Node 构建前端 + 轻量 Python 运行时）、`compose/docker-compose.yml`（`setup` 一次性安装 + `app` 常驻）、`setup.sh`（把依赖装进 `ultra-envs` 卷、权重下载到 `/models`）、Windows 一键启动器（`.bat` + `.ps1`）、部署/运维/验收文档。
-- 镜像**不含** PyTorch 与模型权重；首次 `docker compose run --rm setup` 安装并下载，之后启动直接复用卷。运行期只暴露 `8001`，`server.py` 把 `frontend/dist` 挂到 `/`，与 API 同源。
-- `models.py` 新增 `VLM_MODEL_ROOT`：容器内设为 `/models`，权重发现仍能列出 2B/4B。
-- 部署期下载全部走大陆可直连源：apt 阿里云、npm npmmirror、pip/清华（torch 从同一 PyPI 镜像装）、Qwen/ModelScope（回退 hf-mirror）；YOLO11 权重随 Windows 交付包内置，不联网下载。
-- 验证：`deliverable/test/check.sh` 通过（脚本语法、compose 结构、Dockerfile COPY 路径、BAT→PS1 引用、无写死家目录）；前端构建通过；后端 + Rules 测试通过。**镜像构建与 GPU 冒烟需在有 Docker 的机器上执行** `deliverable/build.sh` 与 `deliverable/test/gpu-smoke.sh`。
 
 ---
 

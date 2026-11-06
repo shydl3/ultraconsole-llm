@@ -8,8 +8,8 @@
 # 安装后把 backend/.env 的 VLM_PYTHON 指向同一解释器（单环境模式）：
 #   VLM_PYTHON=/home/user/miniconda3/envs/ultraconsole/bin/python
 #
-# 说明：Docker 交付仍使用 backend + qwen 两个独立 venv；
-# 本文件只用于 WSL 本机开发，方便一个环境里同时 import torch / ultralytics / transformers。
+# 说明：需要 VLM 独立环境时用 backend/requirements-vlm.txt；
+# 本文件只用于 WSL 单环境，方便一个环境里同时 import torch / ultralytics / transformers。
 
 # --- PyTorch / 姿态 ---
 torch==2.14.0

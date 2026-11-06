@@ -2,8 +2,8 @@
 """Download Qwen3-VL weights from mainland-reachable sources.
 
 Default: ModelScope (no redirect to overseas CDNs), fallback: hf-mirror.
-YOLO11 pose weights are shipped inside the Windows delivery package; they are
-never downloaded here. If missing, setup fails with an explicit hint.
+YOLO11 is downloaded by scripts/bootstrap-wsl.sh; this module only verifies it
+exists at YOLO_PATH so the two weights stay consistent.
 """
 from __future__ import annotations
 
@@ -128,7 +128,7 @@ def ensure_yolo() -> None:
         return
     raise SystemExit(
         f"[models] 缺少 {target}。\n"
-        "[models] Windows 交付包已内置该文件；其他部署方式请手动把 "
+        "[models] 请先运行 scripts/bootstrap-wsl.sh，或手动把 "
         f"{YOLO_NAME} 放到 {target.parent} 后重试。"
     )
 
