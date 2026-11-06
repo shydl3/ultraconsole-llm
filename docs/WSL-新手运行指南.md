@@ -67,11 +67,11 @@ nvidia-smi
 
 ```bash
 cd ~
-git clone -b feat/vlm-structured-verdict https://github.com/shydl3/ultraconsole-llm.git
+git clone -b B3-feat/vlm-structured-verdict https://github.com/shydl3/ultraconsole-llm.git
 cd ultraconsole-llm
 ```
 
-> 如果提示 `Remote branch ... not found`，说明项目已经合并到默认分支，去掉 `-b feat/vlm-structured-verdict` 再执行一次：
+> 如果提示 `Remote branch ... not found`，说明项目已经合并到默认分支，去掉 `-b B3-feat/vlm-structured-verdict` 再执行一次：
 >
 > ```bash
 > git clone https://github.com/shydl3/ultraconsole-llm.git
@@ -85,7 +85,7 @@ cd ultraconsole-llm
 ```bash
 export http_proxy=http://$(ip route show default | awk '{print $3}'):7890
 export https_proxy=$http_proxy
-git clone -b feat/vlm-structured-verdict https://github.com/shydl3/ultraconsole-llm.git
+git clone -b B3-feat/vlm-structured-verdict https://github.com/shydl3/ultraconsole-llm.git
 unset http_proxy https_proxy
 cd ultraconsole-llm
 ```
