@@ -117,6 +117,8 @@ bash scripts/bootstrap-wsl.sh
 
 常用参数：`--no-start`（只安装）、`--port 5100`、`--skip-apt`、`--yolo <本地权重>`。
 
+> 第一次接触 Linux / WSL，建议直接按 [WSL 新手运行指南](docs/WSL-新手运行指南.md) 一步一步操作。
+
 ### 1. 创建两个 Python 环境
 
 ```bash
