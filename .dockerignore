@@ -1,0 +1,41 @@
+# 构建上下文裁剪：镜像只包含代码与前端构建产物。
+.git
+.gitignore
+.github
+.qwen
+.cache
+.pytest_cache
+.ruff_cache
+**/__pycache__
+**/*.py[cod]
+
+# 本机环境与密钥
+backend/.venv
+backend/venv
+backend/.env
+backend/.webhook.json
+
+# 运行时数据与模型权重（由卷挂载）
+models
+backend/models
+data
+Rules/data
+Rules/tests
+tmp
+
+# 交付构建产物
+deliverable/dist
+deliverable/package/models
+deliverable/package/data
+
+# 前端依赖与旧构建
+frontend/node_modules
+frontend/dist
+
+# 大体积媒体
+*.mp4
+*.avi
+*.mkv
+*.mov
+*.m4v
+*.wmv

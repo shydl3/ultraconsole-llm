@@ -1,0 +1,78 @@
+UltraConsole VLM 交付包（Windows 11 x64）
+=========================================
+
+一、系统要求
+------------
+1. Windows 11 64 位（家庭版/专业版均可），已开启 CPU 虚拟化（BIOS 默认通常已开启）。
+2. NVIDIA 显卡（建议 RTX 3060 12G 及以上；本项目在 RTX 3080 16G 上验证）。
+3. 已安装 Windows 版 NVIDIA 显卡驱动（到 nvidia.cn 下载，普通安装即可）。
+4. Docker Desktop for Windows（个人/小规模免费；大型企业需订阅授权；安装时勾选 WSL 2 backend）。
+5. 内存建议 16 GB 以上，磁盘预留 30 GB 以上。
+6. 建议把本文件夹放在固定位置，例如 D:\UltraConsole（路径尽量不含空格）。
+
+二、安装步骤
+------------
+第 1 步：安装 NVIDIA 驱动
+  双击驱动安装包，按提示完成；安装后在命令提示符执行 nvidia-smi 能看到显卡信息。
+
+第 2 步：安装 Docker Desktop
+  下载地址：https://www.docker.com/products/docker-desktop/
+  安装完成后启动 Docker Desktop，等待左下角显示 "Engine running"。
+  （Docker Desktop 首次启动会自动准备 WSL 2，无需手动操作 Linux。）
+
+第 3 步：解压交付包
+  把整个压缩包解压到 D:\UltraConsole 这类固定目录。
+  目录里应能看到：启动.bat、docker-compose.yml、images、models、data 等。
+
+第 4 步：双击「启动.bat」
+  首次启动会自动完成三件事：
+    (1) 导入镜像（1-3 分钟）
+    (2) 下载 Python 依赖（约 6-8 GB，取决于网速）
+    (3) 下载 Qwen 语义模型与 YOLO 姿态模型（约 4.5 GB）
+  全部完成后会自动打开浏览器 http://localhost:8001。
+
+  如果网络较慢，可先编辑本目录下的 .env 文件，把
+    PIP_INDEX_URL 改成 https://pypi.tuna.tsinghua.edu.cn/simple
+    HF_ENDPOINT   改成 https://hf-mirror.com
+  再双击「启动.bat」。
+
+三、日常使用
+------------
+启动：双击「启动.bat」
+停止：双击「停止.bat」（数据保留）
+日志：双击「查看日志.bat」
+诊断：双击「诊断.bat」（检查 Docker / 显卡 / 端口）
+数据：双击「打开数据目录.bat」（视频、分析记录、模型都在这里）
+
+四、更新
+--------
+把新的镜像文件（ultraconsole-x.y.z.tar.gz）放进 images 目录，
+双击「更新.bat」。脚本会自动切换版本号，分析记录与视频不会丢失。
+
+五、常见问题
+------------
+1) 提示 "Docker 未运行"
+   打开 Docker Desktop，等待 "Engine running" 后重试。
+
+2) 提示 "未检测到 nvidia-smi"
+   显卡驱动未安装或未生效，重装 NVIDIA 驱动后重启电脑。
+
+3) 浏览器打不开 / 端口被占用
+   修改 .env 里的 ULTRACONSOLE_PORT=8001 为其他端口（如 8080），
+   重新双击「启动.bat」，然后访问 http://localhost:8080。
+
+4) 首次启动下载很慢或失败
+   按上面的镜像源配置修改 .env；或在有网络的机器上准备好 models 目录后整体拷贝。
+
+5) 页面能开但分析报 CUDA 错误
+   双击「诊断.bat」确认容器能看到显卡；在 Docker Desktop 设置中确认
+   Resources -> WSL integration 已启用，然后重启 Docker Desktop。
+
+6) 想彻底卸载
+   先双击「停止.bat」，再在 Docker Desktop 中删除 ultraconsole 相关容器/卷，
+   最后删除本文件夹（data 目录里是分析记录，请先备份）。
+
+六、说明
+--------
+- 所有视频与模型推理都在本机完成，不上传云端。
+- 默认不启用登录鉴权；如需在局域网共享，请设置 ULTRACONSOLE_PORT 绑定范围并启用 token（需重新构建镜像）。

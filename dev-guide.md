@@ -138,6 +138,20 @@ runner.py 依次执行三个子进程阶段：
 - 前端：`utils/library.ts` 的 `LibraryItem` 增加 `durationSec` 与 `formatDuration()`（时/分/秒、中英双语）；`LibraryPage` 新增「处理时长」列、`LibraryDetail` 显示时长，运行中任务标注「进行中」。
 - 测试：新增 `test_display_name_and_duration`（displayName 时间戳 + durationSec 精确断言）。验证：后端 pytest 137 passed + 1 skip、ruff 通过、前端 build/lint/test 30 通过。
 
+### 4.4 路径自包含（权重与解释器）
+
+- **VLM 权重根目录**：`models.py` 的 `MODEL_ROOT` 原为 `parents[5]`（实际解析到 `/home/user`，即项目外），现改为项目内 `models/`，并支持 `VLM_MODEL_ROOT` 覆盖（容器里挂载到 `/models` 时使用）；2B/4B 权重已复制到 `models/Qwen3-VL-2B-Instruct` / `models/Qwen3-VL-4B-Instruct`，`VLM_MODEL_PATH` 仅作为单模型路径的覆盖入口。
+- **VLM 解释器**：`cli.py` 的 `qwenPython` 默认改为 `sys.executable`，不再写死开发机 conda 路径；Qwen 跑在独立环境时用 `VLM_PYTHON` 覆盖（本机放 `backend/.env`，容器由编排注入）。
+- `.gitignore` 忽略 `models/*`（保留 `.gitkeep`）；README 权重/解释器说明与 `backend/.env.example` 已同步。
+- 验证：`/api/vlm/parameters` 返回项目内路径，2B/4B 均 `available`；后端 + Rules 测试通过。
+
+### 4.5 交付物（deliverable/）
+
+- 新增 `deliverable/`：`Dockerfile`（Node 构建前端 + 轻量 Python 运行时）、`compose/docker-compose.yml`（`setup` 一次性安装 + `app` 常驻）、`setup.sh`（把依赖装进 `ultra-envs` 卷、权重下载到 `/models`）、Windows 一键启动器（`.bat` + `.ps1`）、部署/运维/验收文档。
+- 镜像**不含** PyTorch 与模型权重；首次 `docker compose run --rm setup` 安装并下载，之后启动直接复用卷。运行期只暴露 `8001`，`server.py` 把 `frontend/dist` 挂到 `/`，与 API 同源。
+- `models.py` 新增 `VLM_MODEL_ROOT`：容器内设为 `/models`，权重发现仍能列出 2B/4B。
+- 验证：`deliverable/test/check.sh` 通过（脚本语法、compose 结构、Dockerfile COPY 路径、BAT→PS1 引用、无写死家目录）；前端构建通过；后端 + Rules 测试通过。**镜像构建与 GPU 冒烟需在有 Docker 的机器上执行** `deliverable/build.sh` 与 `deliverable/test/gpu-smoke.sh`。
+
 ---
 
 ## 5. 核心问题：事件判定准确率
@@ -247,6 +261,7 @@ PYTHONPATH=Rules/src python -m ultra_rules.vlm.cli calibrate \
 | 路径 | 职责 |
 |---|---|
 | `Rules/src/ultra_rules/vlm/contracts.py` | 全部数据模型（Poi / CueDefinition / EventDefinition / RunRequest 等） |
+| `Rules/src/ultra_rules/vlm/models.py` | 本地 Qwen3-VL 权重发现与校验（默认根目录为项目内 `models/`，不读项目外路径） |
 | `Rules/src/ultra_rules/vlm/observations.py` | 跟踪阶段：YOLO-Pose + ByteTrack → observations.sqlite |
 | `Rules/src/ultra_rules/vlm/poi.py` | 候选生成：PoiTracker 状态机 |
 | `Rules/src/ultra_rules/vlm/cues.py` | 红灯 CV 检测 + `calibrate()` 校准工具 |
@@ -283,7 +298,7 @@ PYTHONPATH=Rules/src python -m ultra_rules.vlm.cli calibrate \
 
 ```bash
 # 后端 + 规则算法测试
-cd /home/user/ultraconsole
+cd <项目根目录>
 PYTHONPATH=backend:Rules/src python -m pytest backend/tests Rules/tests
 
 # 后端 lint
@@ -293,7 +308,12 @@ python -m ruff check backend/app Rules/src
 cd frontend && npm run build && npm test && npm run lint
 
 # 启动（后端 8001 / 前端默认端口，示例 5100）
-PATH=/home/user/miniconda3/envs/ultraconsole/bin:$PATH ./start.sh 5100
+PATH=<conda>/envs/ultraconsole/bin:$PATH ./start.sh 5100
+
+# 模型权重位置（项目内，默认加载；不需要设置 VLM_MODEL_PATH）
+# models/Qwen3-VL-2B-Instruct/   ← 默认模型
+# models/Qwen3-VL-4B-Instruct/
+# Qwen 独立解释器写在本机 backend/.env 的 VLM_PYTHON（不入库）
 
 # 红灯阈值校准
 PYTHONPATH=Rules/src python -m ultra_rules.vlm.cli calibrate \
@@ -309,6 +329,7 @@ PYTHONPATH=Rules/src python -m ultra_rules.vlm.cli calibrate \
 5. **Schema 兼容**：给 `EventDefinition` 等新增字段时，`event_rules.py` 的 `resolve()` 里读取必须用 `.get()` 容错（历史 `event-rules.json` 可能缺新键）。
 6. **先解释方案再动工**：涉及功能设计 / UI 交互 / 阈值语义等有多种路径的改动，先给方案让用户拍板。
 7. **验收要能量化**：任何“准确率提升”都要有标注集 + precision/recall/F1 支撑，不能只凭样例感觉。
+8. **资源路径必须自包含**：权重、配置、示例数据的默认路径一律落在项目内；解释器与外部挂载只能通过 `VLM_PYTHON` / `VLM_MODEL_PATH` / `ULTRA_MODELS_DIR` 等环境变量覆盖，代码里不得写死家目录或机器专属绝对路径。
 
 ---
 

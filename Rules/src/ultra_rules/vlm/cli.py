@@ -27,7 +27,7 @@ def prepare(run_dir: Path, request: RunRequest, source: Path, video: dict, data_
               "poseModelPath": str(ROOT / "backend/models/yolo11m-pose.pt"),
               "modelPath": model_path,
               "posePython": pose_python,
-              "qwenPython": os.environ.get("VLM_PYTHON", "/home/user/miniconda3/envs/qwen3vl-bf16/bin/python"),
+              "qwenPython": os.environ.get("VLM_PYTHON") or sys.executable,
               "cacheRoot": str(data_root / "cache")}
     write_json(run_dir / "request.json", config)
     write_json(run_dir / "manifest.json", {"version": VERSION, "sourceSha256": video["sha256"],

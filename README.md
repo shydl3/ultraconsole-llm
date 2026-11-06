@@ -125,13 +125,15 @@ pip install torch transformers accelerate av pillow numpy qwen-vl-utils
 |---|---|---|
 | `yolo11m-pose.pt` | 人员跟踪 | `backend/models/` |
 | `yolov8n.pt` | 经典 CV 检测（可选） | `backend/models/` |
-| `Qwen3-VL-2B-Instruct` / `4B` | 语义判定 | 任意目录，用 `VLM_MODEL_PATH` 指定 |
+| `Qwen3-VL-2B-Instruct` / `4B` | 语义判定 | 项目内 `models/`（默认加载位置） |
 
 ### 3. 配置（可选）
 
 ```bash
-export VLM_MODEL_PATH=/path/to/Qwen3-VL-2B-Instruct
-export VLM_PYTHON=/home/user/miniconda3/envs/qwen3vl-bf16/bin/python
+# 默认从项目内 models/ 加载，无需设置；仅在挂载到其他路径时才需要覆盖
+# export VLM_MODEL_PATH=/path/to/Qwen3-VL-2B-Instruct
+# 默认与后端使用同一个 Python；Qwen 跑在独立环境时再指定
+export VLM_PYTHON=/path/to/qwen-env/bin/python
 export ULTRA_API_TOKEN=your-token   # 可选，启用鉴权
 ```
 
@@ -156,8 +158,9 @@ export ULTRA_API_TOKEN=your-token   # 可选，启用鉴权
 
 | 变量 | 默认值 | 作用 |
 |---|---|---|
-| `VLM_MODEL_PATH` | 自动 | Qwen3-VL 模型目录 |
-| `VLM_PYTHON` | `qwen3vl-bf16` 的 python | VLM 推理解释器 |
+| `VLM_MODEL_PATH` | 项目内 `models/Qwen3-VL-2B-Instruct` | Qwen3-VL 模型目录 |
+| `VLM_MODEL_ROOT` | 项目内 `models/` | 权重发现根目录（容器挂载时覆盖） |
+| `VLM_PYTHON` | 当前 Python | VLM 推理解释器（独立环境时覆盖） |
 | `VLM_POSE_PYTHON` | 当前 python | 姿态/跟踪解释器 |
 | `VLM_DATA_ROOT` | `Rules/data/vlm` | 分析数据根目录 |
 | `ULTRA_API_TOKEN` | *(空)* | HTTP 鉴权令牌 |
@@ -177,6 +180,7 @@ export ULTRA_API_TOKEN=your-token   # 可选，启用鉴权
 ├── backend/            # FastAPI 服务（路由、运行时、规则、库）
 │   ├── app/
 │   └── models/         # yolo11m-pose.pt, yolov8n.pt
+├── models/             # 项目内模型权重（Qwen3-VL-2B/4B，默认加载位置；不入库）
 ├── Rules/              # 纯算法库（无 Web 依赖）
 │   ├── src/ultra_rules/vlm/   # 契约、跟踪、信号、判定、采样、提示词、worker
 │   └── configs/        # 示例事件规则
@@ -203,20 +207,24 @@ export ULTRA_API_TOKEN=your-token   # 可选，启用鉴权
 
 ---
 
-## 部署（Docker）
+## 部署（Docker / Windows 一键包）
 
-项目已把**模型权重 / 配置 / 数据**与代码分离，可干净地容器化：
-方便移植到其他部门本地部署
-运行时所有数据在本地处理
+项目已把**模型权重 / 配置 / 数据**与代码分离，并提供完整的交付物生成流程：
+镜像本身不含 PyTorch 依赖与权重，首次启动自动安装到挂载卷；前端与 API 同源，只暴露 `8001`。
 
 ```bash
-docker run --gpus all \
-  -p 8001:8001 -p 5100:5100 \
-  -v /data/models:/models \
-  -v /data/ultraconsole:/data \
-  -e VLM_MODEL_PATH=/models/Qwen3-VL-2B-Instruct \
-  -e ULTRA_DEVICE=cuda \
-  ultraconsole:latest
+./deliverable/build.sh     # 构建镜像 + 导出 tar + 生成 Windows 交付包
+```
+
+产物在 `deliverable/dist/`。Windows 用户解压后双击 `启动.bat` 即可（首次会下载依赖与权重）。
+构建说明见 `deliverable/README.md`，部署步骤见 `deliverable/docs/部署手册.md`。
+
+在 Linux + NVIDIA Container Toolkit 上也可以直接复用同一份 compose：
+
+```bash
+cd deliverable/dist/UltraConsole-1.0.0-Win64
+docker compose run -T --rm setup   # 首次：安装依赖、下载权重
+docker compose up -d              # 启动，访问 http://localhost:8001
 ```
 
 ---

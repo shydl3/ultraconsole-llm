@@ -5,7 +5,11 @@ import json
 import os
 from pathlib import Path
 
-MODEL_ROOT = Path(__file__).resolve().parents[5]
+PROJECT_ROOT = Path(__file__).resolve().parents[4]
+# Weights are shipped inside the project (models/Qwen3-VL-*), never read from a
+# developer home directory. Container deployments mount them elsewhere and set
+# VLM_MODEL_ROOT (e.g. /models) so discovery still sees every Qwen3-VL-* folder.
+MODEL_ROOT = Path(os.environ.get("VLM_MODEL_ROOT") or PROJECT_ROOT / "models")
 
 
 def default_model_path() -> str:

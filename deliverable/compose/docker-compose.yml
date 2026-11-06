@@ -1,0 +1,91 @@
+name: ultraconsole
+
+# 运行期公共环境。所有会写缓存的工具都指向 /data，升级镜像不丢数据。
+x-app-env: &app-env
+  PYTHONUNBUFFERED: "1"
+  PYTHONUTF8: "1"
+  TZ: ${TZ:-Asia/Shanghai}
+  HOME: /data/home
+  HF_HOME: /data/.hf
+  XDG_CACHE_HOME: /data/.cache
+  TORCH_HOME: /data/.torch
+  YOLO_CONFIG_DIR: /data/.ultralytics
+  MPLCONFIGDIR: /data/.matplotlib
+  ULTRA_DEVICE: cuda
+  ULTRA_AUTOSTART: "1"
+  ULTRA_DEFAULT_MODEL: yolo11m-pose.pt
+  ULTRA_MODELS_DIR: /app/backend/models
+  ULTRA_VIDEO_PREVIEW_DIR: /data/video-previews
+  VLM_DATA_ROOT: /data/vlm
+  VLM_MODEL_ROOT: /models
+  VLM_MODEL_PATH: ${VLM_MODEL_PATH:-/models/Qwen3-VL-2B-Instruct}
+  VLM_MODEL_REPO: ${VLM_MODEL_REPO:-Qwen/Qwen3-VL-2B-Instruct}
+  VLM_PYTHON: /opt/ultra/envs/qwen/bin/python
+  VLM_POSE_PYTHON: /opt/ultra/envs/backend/bin/python
+  # setup 与 app 必须看到同一组安装参数，否则 setup.sh --check 的哈希会不一致。
+  PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.org/simple}
+  TORCH_INDEX_URL: ${TORCH_INDEX_URL:-https://download.pytorch.org/whl/cu124}
+  TORCH_SPEC: ${TORCH_SPEC:-torch torchvision}
+  TORCH_VERSION: ${TORCH_VERSION:-}
+  PIP_NO_INDEX: ${PIP_NO_INDEX:-0}
+  SKIP_MODEL_DOWNLOAD: ${SKIP_MODEL_DOWNLOAD:-0}
+  HF_ENDPOINT: ${HF_ENDPOINT:-https://huggingface.co}
+
+services:
+  # 一次性安装器：pip 环境进 ultra-envs 卷，权重进 ./models。
+  # app 依赖它成功退出，因此直接 `docker compose up -d` 也能在全新机器上工作。
+  setup:
+    image: ${ULTRACONSOLE_IMAGE:-ultraconsole}:${ULTRACONSOLE_TAG:-latest}
+    pull_policy: never
+    command: ["setup"]
+    environment:
+      <<: *app-env
+    volumes:
+      - ultra-envs:/opt/ultra/envs
+      - ultra-pip:/opt/ultra/pip-cache
+      - ./models:/models
+      - ./data:/data
+      - ./offline:/opt/ultra/wheelhouse:ro
+    restart: "no"
+
+  app:
+    image: ${ULTRACONSOLE_IMAGE:-ultraconsole}:${ULTRACONSOLE_TAG:-latest}
+    pull_policy: never
+    command: ["serve"]
+    depends_on:
+      setup:
+        condition: service_completed_successfully
+    environment:
+      <<: *app-env
+      # 默认空 = 不启用鉴权。启用时需要与前端构建期的 VITE_ULTRA_API_TOKEN 一致。
+      ULTRA_API_TOKEN: ${ULTRA_API_TOKEN:-}
+    volumes:
+      - ultra-envs:/opt/ultra/envs
+      - ./models:/models
+      # VLM 跟踪阶段固定读取 backend/models/yolo11m-pose.pt，这里把下载目录挂进去。
+      - ./models/detect:/app/backend/models:ro
+      - ./data:/data
+    ports:
+      - "${ULTRACONSOLE_PORT:-8001}:8001"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    healthcheck:
+      test:
+        - CMD
+        - /opt/ultra/envs/backend/bin/python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/api/health', timeout=3).read()"
+      interval: 20s
+      timeout: 6s
+      retries: 30
+      start_period: 120s
+    restart: unless-stopped
+
+volumes:
+  ultra-envs:
+  ultra-pip:

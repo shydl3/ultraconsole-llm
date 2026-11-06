@@ -112,6 +112,9 @@ temp/
 # 权重 / 引擎 / 导出的模型
 backend/models/*
 !backend/models/.gitkeep
+# VLM 权重（项目内默认加载目录，体积大，随交付包单独分发）
+models/*
+!models/.gitkeep
 *.pt
 *.pth
 *.ckpt
