@@ -7,7 +7,7 @@ BACKEND_DIR="$ROOT_DIR/backend"
 FRONTEND_DIR="$ROOT_DIR/frontend"
 RUNTIME_DIR="$ROOT_DIR/tmp/ultraconsole"
 BACKEND_PORT=8001
-FRONTEND_PORT=5173
+FRONTEND_PORT=5100
 
 usage() {
   cat <<'EOF'
@@ -16,7 +16,7 @@ usage() {
   ./start.sh --port <前端端口>
 
 示例：
-  ./start.sh          # 前端端口 5173
+  ./start.sh          # 前端端口 5100（默认）
   ./start.sh 3000     # 前端端口 3000
   ./start.sh -p 8080  # 前端端口 8080
 EOF
@@ -84,10 +84,33 @@ raise SystemExit(1)
 PY
 }
 
+# 定位部署时创建的 conda 环境（默认 ultraconsole）解释器：
+# 即使当前处于 base 等其他环境、或新开终端未手动 conda activate，也能正确找到，
+# 避免用户手动切换环境。可用 ULTRA_CONDA_ENV 覆盖环境名。
+conda_env_python() {
+  local env_name="${ULTRA_CONDA_ENV:-ultraconsole}" base="" candidate=""
+  if [[ "${CONDA_DEFAULT_ENV:-}" == "$env_name" && -n "${CONDA_PREFIX:-}" && -x "$CONDA_PREFIX/bin/python" ]]; then
+    printf '%s' "$CONDA_PREFIX/bin/python"
+    return 0
+  fi
+  if command -v conda >/dev/null 2>&1; then
+    base="$(conda info --base 2>/dev/null || true)"
+  fi
+  [[ -n "$base" ]] || base="$HOME/miniconda3"
+  candidate="$base/envs/$env_name/bin/python"
+  if [[ -x "$candidate" ]]; then
+    printf '%s' "$candidate"
+    return 0
+  fi
+  return 1
+}
+
 if [[ -x "$BACKEND_DIR/.venv/bin/python" ]]; then
   PYTHON_BIN="$BACKEND_DIR/.venv/bin/python"
 elif [[ -x "$BACKEND_DIR/venv/bin/python" ]]; then
   PYTHON_BIN="$BACKEND_DIR/venv/bin/python"
+elif conda_py="$(conda_env_python)"; then
+  PYTHON_BIN="$conda_py"
 elif command -v python3 >/dev/null 2>&1; then
   PYTHON_BIN="$(command -v python3)"
 else

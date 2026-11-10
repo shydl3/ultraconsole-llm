@@ -105,7 +105,7 @@ cd ~/ultraconsole-llm
 在项目目录里执行：
 
 ```bash
-bash scripts/bootstrap-wsl.sh
+bash deploy.sh
 ```
 
 接下来脚本会自动完成：
@@ -115,13 +115,13 @@ bash scripts/bootstrap-wsl.sh
 - 从国内镜像安装所有 Python 依赖
 - 安装 Node.js（如果系统版本太低）
 - 安装前端依赖
-- 从 ModelScope 下载 Qwen 语义模型和 YOLO11 姿态模型
+- 从 ModelScope 下载 Qwen 语义模型（2B + 4B）和 YOLO11 姿态模型
 - 校验 CUDA 和模型
 - 最后启动项目
 
 中途会要求输入一次 **sudo 密码**（就是你的 WSL 登录密码），输入时屏幕不显示，输完回车即可。
 
-安装过程中会看到大量下载和安装日志，**不要关闭窗口**。首次需要下载约 10GB，具体取决于网速。
+安装过程中会看到大量下载和安装日志，**不要关闭窗口**。首次需要下载约 20GB（含 2B + 4B 两套模型），具体取决于网速。
 
 ---
 
@@ -188,11 +188,11 @@ bash start.sh 5100
 ```bash
 cd ~/ultraconsole-llm
 git pull
-bash scripts/bootstrap-wsl.sh --no-start
+bash deploy.sh --no-start
 bash start.sh 5100
 ```
 
-`bootstrap-wsl.sh` 可以重复执行，已安装的内容会自动跳过。
+`deploy.sh` 可以重复执行，已安装的内容会自动跳过。
 
 ---
 
@@ -204,10 +204,10 @@ bash start.sh 5100
 | `nvidia-smi: command not found` | 在 Windows 重装 NVIDIA 驱动，然后 `wsl --shutdown` 重开 |
 | 提示 CUDA 不可用 | 在 Windows 执行 `wsl --shutdown`，重开 WSL 再启动 |
 | `sudo: command not found` | 当前 WSL 用户没有管理员权限，请联系管理员 |
-| 安装中途断了 | 重新执行 `bash scripts/bootstrap-wsl.sh`，已完成部分会跳过 |
-| 端口 5100 被占用 | 改用 `bash scripts/bootstrap-wsl.sh --port 8080`，之后访问 `http://localhost:8080` |
+| 安装中途断了 | 重新执行 `bash deploy.sh`，已完成部分会跳过 |
+| 端口 5100 被占用 | 改用 `bash deploy.sh --port 8080`，之后访问 `http://localhost:8080` |
 | 浏览器打不开 | 手动访问 `http://127.0.0.1:5100` |
-| 提示磁盘空间不足 | 至少预留 30GB，清理后重试 |
+| 提示磁盘空间不足 | 至少预留 40GB，清理后重试 |
 | 页面能开但分析报错 | 先确认 `nvidia-smi` 和 `torch.cuda` 正常，再看终端里的错误 |
 
 ---

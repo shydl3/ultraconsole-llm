@@ -2,7 +2,7 @@
 """Download Qwen3-VL weights from mainland-reachable sources.
 
 Default: ModelScope (no redirect to overseas CDNs), fallback: hf-mirror.
-YOLO11 is downloaded by scripts/bootstrap-wsl.sh; this module only verifies it
+YOLO11 is downloaded by deploy.sh; this module only verifies it
 exists at YOLO_PATH so the two weights stay consistent.
 """
 from __future__ import annotations
@@ -19,7 +19,7 @@ from pathlib import Path
 MODELS = Path(os.environ.get("MODELS_DIR", "/models"))
 DETECT = MODELS / "detect"
 YOLO_NAME = "yolo11m-pose.pt"
-# 容器用 /models/detect；WSL 开发用 backend/models（bootstrap 传入）。
+# 容器用 /models/detect；WSL 开发用 backend/models（deploy.sh 传入）。
 YOLO_PATH = Path(os.environ.get("YOLO_PATH") or (DETECT / YOLO_NAME))
 
 QWEN_REPO = os.environ.get("VLM_MODEL_REPO", "Qwen/Qwen3-VL-2B-Instruct")
@@ -128,7 +128,7 @@ def ensure_yolo() -> None:
         return
     raise SystemExit(
         f"[models] 缺少 {target}。\n"
-        "[models] 请先运行 scripts/bootstrap-wsl.sh，或手动把 "
+        "[models] 请先运行 deploy.sh，或手动把 "
         f"{YOLO_NAME} 放到 {target.parent} 后重试。"
     )
 
