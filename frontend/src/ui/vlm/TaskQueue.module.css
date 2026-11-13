@@ -1,0 +1,139 @@
+.queue {
+  border: 1px solid var(--line-0);
+  border-radius: 8px;
+  padding: 12px;
+  display: grid;
+  gap: 10px;
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.task {
+  border: 1px solid var(--line-0);
+  border-radius: 8px;
+  padding: 10px;
+  display: grid;
+  gap: 7px;
+  background: var(--panel-2, #151e2a);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+
+.badge,
+.running {
+  padding: 3px 7px;
+  border-radius: 5px;
+  font-size: 11px;
+  white-space: nowrap;
+  background: rgba(255, 255, 255, .05);
+  color: var(--fg-1);
+}
+
+.running {
+  color: var(--warn);
+  background: #302719;
+}
+
+.percent {
+  font-size: 12px;
+  color: var(--fg-2);
+  min-width: 42px;
+  text-align: right;
+}
+
+.bar {
+  width: 100%;
+  height: 6px;
+  border: 0;
+  border-radius: 999px;
+  overflow: hidden;
+  appearance: none;
+  background: var(--line-0);
+}
+
+.bar::-webkit-progress-bar {
+  background: var(--line-0);
+}
+
+.bar::-webkit-progress-value {
+  background: var(--accent-blue, #4aa3ff);
+}
+
+.bar::-moz-progress-bar {
+  background: var(--accent-blue, #4aa3ff);
+}
+
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  color: var(--fg-2);
+  font-size: 11px;
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.actions button {
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  padding: 5px 9px;
+  border: 1px solid var(--line-0);
+  border-radius: 6px;
+  background: var(--panel-0);
+  color: var(--fg-0);
+}
+
+.actions button:disabled {
+  opacity: .45;
+  cursor: default;
+}
+
+.hint {
+  color: var(--fg-2);
+  font-size: 12px;
+}
+
+.error {
+  color: #ff8585;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 11px;
+}
+
+.confirmName {
+  color: var(--fg-2);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}

@@ -7,6 +7,7 @@ import numpy as np
 import pytest
 from ultra_rules.vlm.media import probe
 from ultra_rules.vlm.segmenting import (
+    fixed_segments,
     plan_segments,
     probe_keyframes,
     segment_video,
@@ -63,6 +64,26 @@ def test_plan_segments_handles_sparse_keyframes():
     # Only two keyframes: cannot cut near the 3s target, falls back to fewer segments.
     plan = plan_segments(10.0, [0.0, 8.0], 3.0)
     assert plan[0][0] == 0.0 and plan[-1][1] == 10.0
+    assert all(end > start for start, end in plan)
+
+
+def test_plan_segments_covers_a_24h_recording():
+    duration = 24 * 3600
+    keys = [float(t) for t in range(0, duration + 1, 10)]  # 10s GOP
+    plan = plan_segments(duration, keys, 600)
+    assert len(plan) == 144
+    assert plan[0] == (0.0, 600.0)
+    assert plan[-1][1] == duration
+    for (_, prev_end), (next_start, _) in zip(plan, plan[1:], strict=False):
+        assert prev_end == next_start
+    assert all(end > start for start, end in plan)
+
+
+def test_fixed_segments_bucket_a_24h_recording_without_keyframe_scan():
+    plan = fixed_segments(24 * 3600, 600)
+    assert len(plan) == 144
+    assert plan[0] == (0.0, 600.0)
+    assert plan[-1] == (85800.0, 24 * 3600)
     assert all(end > start for start, end in plan)
 
 

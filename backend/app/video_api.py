@@ -217,7 +217,8 @@ def preview_source(identifier: str):
             raise HTTPException(409, "Preview is not ready")
         if not job["preview"].is_file():
             raise HTTPException(404, "Cached preview was removed; select the video again")
-        return FileResponse(job["preview"], media_type="video/mp4")
+        return FileResponse(job["preview"], media_type="video/mp4",
+                            headers={"Cache-Control": "private, max-age=3600"})
 
 
 @router.delete("/{identifier}")

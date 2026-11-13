@@ -19,6 +19,50 @@ def process_identity(pid: int):
         return None
 
 
+def acquire_worker_lock(lock, timeout: float = 120.0):
+    """Wait for the shared GPU worker slot instead of failing on a brief overlap.
+
+    The backend queue starts the next run as soon as the previous status is
+    terminal, which can be a few milliseconds before this process releases its
+    lock; retrying avoids a spurious "failed" run.
+    """
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return
+        except BlockingIOError:
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(0.5)
+
+
+def count_candidates(run_dir: Path) -> int:
+    path = run_dir / "candidates.jsonl"
+    if not path.exists():
+        return 0
+    with path.open("rb") as handle:
+        return sum(1 for _ in handle)
+
+
+def phase_timeout(phase: str, config: dict, run_dir: Path) -> float:
+    """Safety-net timeout per phase, scaled for multi-hour surveillance files.
+
+    A 12-24h recording spends hours in pose tracking, and the understanding phase
+    makes one Qwen call per candidate; the old fixed 1h / 1day limits would kill
+    legitimate long runs. ``understanding`` is evaluated after tracking finished,
+    so the candidate file already exists when it is counted.
+    """
+    duration = float(config["video"]["durationSec"])
+    if phase == "segment":
+        return max(3600.0, duration)
+    if phase == "tracking":
+        return max(86400.0, duration * 4)
+    if phase == "cues":
+        return max(86400.0, duration)
+    return max(86400.0, duration * 4, count_candidates(run_dir) * 30 + 3600)
+
+
 def run(run_dir: Path):
     config = read_json(run_dir / "request.json")
     lock_path = Path(config["cacheRoot"]).parent / "worker.lock"
@@ -44,16 +88,15 @@ def run(run_dir: Path):
     write_json(run_dir / "owner.json", {"pid": os.getpid(), "identity": process_identity(os.getpid())})
     with lock_path.open("w") as lock:
         try:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            acquire_worker_lock(lock)
             # segment runs in the pose env (only needs av); tracking/cues stay on
             # the full timeline; understanding loops segments inside one worker
             # so the Qwen model is loaded once but processed in bounded slices.
-            phases = [("segment", config["posePython"], 3600),
-                      ("tracking", config["posePython"], 86400)]
+            phases = [("segment", config["posePython"]), ("tracking", config["posePython"])]
             if config["request"].get("cues"):
-                phases.append(("cues", config["posePython"], 86400))
-            phases.append(("understanding", config["qwenPython"], 86400))
-            for phase, python, timeout in phases:
+                phases.append(("cues", config["posePython"]))
+            phases.append(("understanding", config["qwenPython"]))
+            for phase, python in phases:
                 if cancelled or (run_dir / "cancel.requested").exists():
                     cancelled = True
                     break
@@ -62,6 +105,7 @@ def run(run_dir: Path):
                 with (run_dir / f"{phase}.log").open("a") as log:
                     child = subprocess.Popen([python, "-m", "ultra_rules.vlm.cli", phase, "--run-dir", str(run_dir)],
                                              stdout=log, stderr=subprocess.STDOUT, env=env)
+                    timeout = phase_timeout(phase, config, run_dir)
                     deadline = time.monotonic() + timeout
                     while child.poll() is None:
                         if cancelled or (run_dir / "cancel.requested").exists():

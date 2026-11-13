@@ -12,13 +12,15 @@ from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, PlainTextResponse
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
+from fastapi.staticfiles import StaticFiles
 from PIL import Image
 
 from .config import settings
 from .devices import ensure_device_available
 from .infer_runtime import UltralyticsRuntime
 from .library_api import router as library_router
+from .playback import router as playback_router
 from .schemas import (
     ModelInfo,
     Params,
@@ -33,6 +35,7 @@ from .state import AppState
 from .system_stats import system_stats
 from .video_api import router as video_router
 from .vlm_api import router as vlm_router
+from .vlm_api import start_scheduler, stop_scheduler
 
 _DEFAULT_MODELS_DIR = str(Path(__file__).resolve().parent.parent / "models")
 MODELS_DIR = os.environ.get("ULTRA_MODELS_DIR", _DEFAULT_MODELS_DIR)
@@ -99,7 +102,12 @@ async def lifespan(_app: FastAPI):
         await asyncio.to_thread(_autostart)
     except Exception as exc:  # pragma: no cover - defensive; never block startup
         state.logs.append(level="ERROR", event="autostart.crashed", msg=str(exc))
-    yield
+    # Resume queued semantic runs after a backend restart and keep the queue moving.
+    start_scheduler()
+    try:
+        yield
+    finally:
+        stop_scheduler()
 
 
 app = FastAPI(title="Ultralytics Infer Console API", version="0.1.0", lifespan=lifespan)
@@ -116,6 +124,7 @@ app.add_middleware(
 app.include_router(vlm_router)
 app.include_router(video_router)
 app.include_router(library_router)
+app.include_router(playback_router)
 
 
 @app.middleware("http")
@@ -417,3 +426,24 @@ async def ws_infer(ws: WebSocket):
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
         runtime.release_tracker(tracker_key)
+
+
+# ---- Optional production hosting -----------------------------------------
+# When a build exists the API also serves it, so the page, API calls and video
+# ranges share one origin. That removes the dev-proxy hop (and its socket churn)
+# from media playback; `./start.sh --prod` builds and uses this path.
+_DIST = Path(__file__).resolve().parents[2] / "frontend" / "dist"
+if (_DIST / "index.html").is_file():
+    if (_DIST / "assets").is_dir():
+        app.mount("/assets", StaticFiles(directory=_DIST / "assets"), name="assets")
+
+    @app.api_route("/{path:path}", methods=["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+                   include_in_schema=False)
+    def spa(path: str, request: Request):
+        # Unknown API paths must stay JSON 404s; only page routes fall back to the SPA shell.
+        if request.method not in {"GET", "HEAD"} or path.startswith(("api/", "ws/")):
+            raise HTTPException(status_code=404, detail="Not found")
+        candidate = (_DIST / path).resolve()
+        if candidate.is_file() and candidate.is_relative_to(_DIST.resolve()):
+            return FileResponse(candidate)
+        return FileResponse(_DIST / "index.html")

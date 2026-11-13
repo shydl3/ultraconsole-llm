@@ -84,6 +84,20 @@ def test_delete_preserves_shared_source_and_rejects_active(client):
     assert source.exists()
 
 
+def test_incomplete_runs_are_hidden_from_records(client):
+    for run_id, state in (("queued", "queued"), ("running", "tracking"), ("partial", "partial"),
+                          ("failed", "failed"), ("cancelled", "cancelled"), ("interrupted", "interrupted")):
+        write(vlm.DATA_ROOT / f"runs/{run_id}/status.json",
+              {"runId": run_id, "state": state, "fileName": f"{run_id}.mp4"})
+    listing = client.get('/api/library?kind=vlm').json()
+    # Only the fully completed run is a saved record.
+    assert [item['id'] for item in listing['items']] == ['analysis']
+    assert listing['counts'] == {'vlm': 1, 'video': 1}
+    assert client.get('/api/library', params={'q': 'running'}).json()['total'] == 0
+    assert client.get('/api/library/vlm/running').status_code == 404
+    assert client.get('/api/library/vlm/analysis').status_code == 200
+
+
 def test_delete_video_removes_metadata_alias_and_invalidates_session(client):
     path = video.CACHE_ROOT / 'legacy-preview.mp4'
     alias = video.ROOT / 'preview-legacy/preview.mp4'

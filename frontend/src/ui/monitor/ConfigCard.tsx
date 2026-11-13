@@ -61,7 +61,7 @@ export function ConfigCard() {
   }
 
   return (
-    <Card title="Config Import / Export" right={busy ? t('config.processing') : undefined}>
+    <Card title={t('cards.config')} right={busy ? t('config.processing') : undefined}>
       <div
         className={[styles.dropZone, dragOver ? styles.dropOver : ''].join(' ')}
         onDragOver={(e) => {

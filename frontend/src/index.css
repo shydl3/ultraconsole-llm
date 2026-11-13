@@ -20,3 +20,22 @@ body {
 #root {
   height: 100%;
 }
+
+/*
+ * Native select popups are drawn by the OS/browser and ignore the control's own
+ * background, which left light text on a white list. Ask for the dark variant
+ * and pin the option colours so the model picker stays readable everywhere.
+ */
+select {
+  color-scheme: dark;
+}
+
+option,
+optgroup {
+  background-color: var(--panel-0);
+  color: var(--fg-0);
+}
+
+option:disabled {
+  color: var(--fg-2);
+}

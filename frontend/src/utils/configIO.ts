@@ -4,7 +4,6 @@ import {
 } from '../api/client'
 import {
   useConsoleStore,
-  type AlertConfig,
   type DeviceType,
   type EventsConfig,
   type OSDFlags,
@@ -25,7 +24,6 @@ export type FullConfig = {
   // 客户端
   osd: OSDFlags
   roi: RoiState
-  alertConfig: AlertConfig
   eventsConfig: EventsConfig
 }
 
@@ -41,7 +39,6 @@ export async function collectConfig(): Promise<FullConfig> {
     modelId: s.currentModelId,
     osd: s.osd,
     roi: s.roi,
-    alertConfig: s.alertConfig,
     eventsConfig: s.eventsConfig,
   }
 }
@@ -83,7 +80,7 @@ export async function applyConfig(json: unknown): Promise<ApplyResult> {
 
   const store = useConsoleStore.getState()
 
-  // 客户端：osd / roi / alertConfig / eventsConfig
+  // 客户端：osd / roi / eventsConfig
   if (isObj(json.osd)) {
     store.setOSD(json.osd as Partial<OSDFlags>)
     applied.push('osd')
@@ -91,10 +88,6 @@ export async function applyConfig(json: unknown): Promise<ApplyResult> {
   if (isObj(json.roi)) {
     store.setRoi(json.roi as Partial<RoiState>)
     applied.push('roi')
-  }
-  if (isObj(json.alertConfig)) {
-    store.setAlertConfig(json.alertConfig as Partial<AlertConfig>)
-    applied.push('alertConfig')
   }
   if (isObj(json.eventsConfig)) {
     store.setEventsConfig(json.eventsConfig as Partial<EventsConfig>)

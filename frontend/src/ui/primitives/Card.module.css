@@ -10,17 +10,22 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
   padding: 12px 12px 10px;
   border-bottom: 1px solid var(--line-0);
 }
 
 .title {
+  min-width: 0;
+  overflow-wrap: anywhere;
   font-weight: 600;
   letter-spacing: 0.4px;
   color: var(--fg-1);
 }
 
 .right {
+  flex: none;
+  white-space: nowrap;
   color: var(--fg-2);
   font-size: 12px;
 }

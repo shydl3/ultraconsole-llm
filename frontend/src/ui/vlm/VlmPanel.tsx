@@ -1,47 +1,19 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { apiVlm, apiVlmMedia, apiVlmUploadChunked } from '../../api/client'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { apiVlm, apiVlmUploadChunked } from '../../api/client'
 import type { EventsConfig } from '../../api/contracts'
 import { useT } from '../../i18n'
-import { activeVlm, vlmCues, vlmPois, type VlmCondition, type VlmResult, type VlmRun } from '../../utils/vlm'
+import { vlmCues, vlmPois, type VlmRun, type VlmTask } from '../../utils/vlm'
 import styles from './VlmPanel.module.css'
 import { EventRulesEditor, type RulesEditorHandle, type RulesEditorState } from './EventRulesEditor'
 import { CueSettings } from './CueSettings'
 import { RuleSnapshotView } from './RuleSnapshotView'
-import { QualityWarnings } from './QualityWarnings'
-import { ModelExplanation } from './ModelExplanation'
 import type { RuleSnapshot } from '../../utils/eventRules'
 import { AnalysisParameters, ParameterSnapshot } from './AnalysisParameters'
 import type { VlmParameters } from '../../utils/vlmParameters'
+import { openReviewWindow } from '../../utils/reviewWindow'
+import { TaskQueue } from './TaskQueue'
 
-function EvidenceImage({ runId, path }: { runId: string; path: string }) {
-  const [url, setUrl] = useState('')
-  useEffect(() => {
-    let alive = true
-    let resource = ''
-    void apiVlmMedia(`/runs/${runId}/artifacts/${path}`).then(value => {
-      resource = value
-      if (alive) setUrl(value)
-      else if (value.startsWith('blob:')) URL.revokeObjectURL(value)
-    }).catch(() => { /* The result and source video remain available. */ })
-    return () => { alive = false; if (resource.startsWith('blob:')) URL.revokeObjectURL(resource) }
-  }, [runId, path])
-  return url ? <img src={url} alt="Sampled target evidence" /> : null
-}
-
-function ConditionList({ conditions, criteria, onSeek }: {
-  conditions?: VlmCondition[]; criteria?: string[]; onSeek: (sec: number) => void
-}) {
-  const t = useT()
-  if (!conditions?.length) return null
-  const label = (v: string) => t(v === 'yes' ? 'vlm.conditionYes' : v === 'no' ? 'vlm.conditionNo' : 'vlm.conditionUnknown')
-  return <div className={styles.hint}>
-    <strong>{t('vlm.conditions')}</strong>
-    <ul>{conditions.map(c => <li key={c.index}>
-      {criteria?.[c.index] ?? `#${c.index}`} · {label(c.value)}
-      {c.evidenceTimeSec != null && <button onClick={() => onSeek(c.evidenceTimeSec as number)}>{t('vlm.evidenceAt')} {c.evidenceTimeSec.toFixed(2)}s</button>}
-    </li>)}</ul>
-  </div>
-}
+const fileKey = (file: File) => `${file.name}:${file.size}:${file.lastModified}`
 
 export function VlmPanel({ file, eventsConfig, basicRunning, onBusyChange }: {
   file: File | null; eventsConfig: EventsConfig; basicRunning: boolean; onBusyChange: (busy: boolean) => void
@@ -50,168 +22,196 @@ export function VlmPanel({ file, eventsConfig, basicRunning, onBusyChange }: {
   const rulesRef = useRef<RulesEditorHandle>(null)
   const [rulesState, setRulesState] = useState<RulesEditorState>({ dirty: false, enabled: 0, ready: false, busy: false })
   const [snapshot, setSnapshot] = useState<RuleSnapshot | null>(null)
+  const [batch, setBatch] = useState<File[]>([])
+  const [submissions, setSubmissions] = useState<VlmTask[]>([])
+  const [queueVersion, setQueueVersion] = useState(0)
+  const [queueBusy, setQueueBusy] = useState(false)
   const [runId, setRunId] = useState('')
   const [runs, setRuns] = useState<VlmRun[]>([])
   const [run, setRun] = useState<VlmRun | null>(null)
-  const [results, setResults] = useState<VlmResult[]>([])
-  const [total, setTotal] = useState(0)
-  const [offset, setOffset] = useState(0)
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
-  const [uploadProgress, setUploadProgress] = useState<{ uploaded: number; total: number } | null>(null)
+  const [activeUpload, setActiveUpload] = useState<{ current: number; total: number; percent: number } | null>(null)
   const [parameters, setParameters] = useState<VlmParameters | null>(null)
-  const [expanded, setExpanded] = useState('')
-  const [source, setSource] = useState('')
-  const videoRef = useRef<HTMLVideoElement>(null)
-  const uploadRef = useRef<{ file: File; videoId: string } | null>(null)
-  const isBusy = submitting || runs.some(r => activeVlm(r.state))
-  const seek = (sec: number) => { if (videoRef.current) videoRef.current.currentTime = Math.max(0, sec - 1) }
+  const uploadRef = useRef(new Map<string, string>())
+  const submittingRef = useRef(false)
+  const queueBusyRef = useRef(false)
+  const runIdRef = useRef('')
+  const isBusy = submitting || queueBusy
 
-  const refresh = useCallback(async (signal?: AbortSignal) => {
-    const list = await apiVlm<VlmRun[]>('/runs', { signal })
-    if (signal?.aborted) return
-    setRuns(list)
-    onBusyChange(submitting || list.some(r => activeVlm(r.state)))
-    if (runId) {
-      const [current, page, rules] = await Promise.all([
-        apiVlm<VlmRun>(`/runs/${runId}`, { signal }),
-        apiVlm<{ items: VlmResult[]; total: number }>(`/runs/${runId}/results?offset=${offset}&limit=20`, { signal }),
-        apiVlm<RuleSnapshot>(`/runs/${runId}/rules`, { signal }),
-      ])
-      if (signal?.aborted) return
-      setSnapshot(rules)
-      setRun(current)
-      setResults(page.items)
-      setTotal(page.total)
+  useEffect(() => { submittingRef.current = submitting }, [submitting])
+  useEffect(() => { runIdRef.current = runId }, [runId])
+
+  const files = useMemo(() => {
+    const list = file ? [file] : []
+    for (const extra of batch) {
+      if (!list.some(item => fileKey(item) === fileKey(extra))) list.push(extra)
     }
-  }, [runId, offset, onBusyChange, submitting])
+    return list
+  }, [file, batch])
 
+  const handleBusy = useCallback((busy: boolean) => {
+    queueBusyRef.current = busy
+    setQueueBusy(busy)
+    onBusyChange(busy || submittingRef.current)
+  }, [onBusyChange])
+
+  // Completed records only; unfinished runs are followed in the task queue.
   useEffect(() => {
-    let alive = true
     const controller = new AbortController()
-    let timer: number
-    const poll = async () => {
-      try { if (alive) await refresh(controller.signal) } catch (e) { if (alive) setError(String(e)) }
-      if (alive) timer = window.setTimeout(() => void poll(), 2500)
-    }
-    void poll()
-    return () => { alive = false; controller.abort(); window.clearTimeout(timer) }
-  }, [refresh])
+    const load = () => void apiVlm<VlmRun[]>('/runs?limit=20&state=completed', { signal: controller.signal })
+      .then(list => { if (!controller.signal.aborted) setRuns(list) }).catch(() => {})
+    load()
+    const timer = window.setInterval(load, 15000)
+    return () => { controller.abort(); window.clearInterval(timer) }
+  }, [queueVersion])
 
   useEffect(() => {
-    if (!run?.videoId) return
-    let alive = true
-    let resource = ''
-    void apiVlmMedia(`/videos/${run.videoId}/source`).then(url => {
-      resource = url
-      if (alive) setSource(url)
-      else if (url.startsWith('blob:')) URL.revokeObjectURL(url)
-    }).catch(e => { if (alive) setError(String(e)) })
-    return () => { alive = false; if (resource.startsWith('blob:')) URL.revokeObjectURL(resource) }
-  }, [run?.videoId])
+    if (!runId) { setRun(null); setSnapshot(null); return }
+    const controller = new AbortController()
+    void Promise.all([
+      apiVlm<VlmRun>(`/runs/${runId}`, { signal: controller.signal }),
+      apiVlm<RuleSnapshot>(`/runs/${runId}/rules`, { signal: controller.signal }),
+    ]).then(([current, rules]) => {
+      if (controller.signal.aborted) return
+      setRun(current)
+      setSnapshot(rules)
+    }).catch(e => { if (!controller.signal.aborted) setError(String(e)) })
+    return () => controller.abort()
+  }, [runId])
+
+  const handleRunUpdate = useCallback((current: VlmRun) => {
+    if (current.runId === runIdRef.current) setRun(current)
+  }, [])
+
+  function addFiles(picked: FileList | null) {
+    if (!picked) return
+    setBatch(previous => {
+      const next = [...previous]
+      for (const candidate of Array.from(picked)) {
+        if (file && fileKey(candidate) === fileKey(file)) continue
+        if (!next.some(item => fileKey(item) === fileKey(candidate))) next.push(candidate)
+      }
+      return next
+    })
+  }
+
+  function removeFile(target: File) {
+    setBatch(previous => previous.filter(item => fileKey(item) !== fileKey(target)))
+  }
+
+  function openRecord(id: string) {
+    // Detail pages live in their own browser window; reviewing a task never makes
+    // it a saved record and never replaces the console view.
+    if (!openReviewWindow({ kind: 'vlm', id })) setError(t('review.popupBlocked'))
+  }
 
   async function start() {
-    if (!file || !parameters) return
+    if (!files.length || !parameters) return
     setError('')
     setSubmitting(true)
+    submittingRef.current = true
     onBusyChange(true)
     try {
       if (!rulesRef.current) throw new Error(t('eventRules.loading'))
       const selection = await rulesRef.current.prepare()
-      let videoId = uploadRef.current?.file === file ? uploadRef.current.videoId : ''
-      if (!videoId) {
-        setUploadProgress({ uploaded: 0, total: file.size })
-        const video = await apiVlmUploadChunked(file, setUploadProgress)
-        videoId = video.videoId
-        uploadRef.current = { file, videoId }
-        setUploadProgress(null)
+      for (const [index, target] of files.entries()) {
+        const key = `${fileKey(target)}#${Date.now()}-${index}`
+        const progress = { uploaded: 0, total: target.size }
+        setActiveUpload({ current: index + 1, total: files.length, percent: 0 })
+        setSubmissions(previous => [...previous, { key, name: target.name, upload: progress }])
+        try {
+          let videoId = uploadRef.current.get(fileKey(target)) ?? ''
+          if (!videoId) {
+            const video = await apiVlmUploadChunked(target, next => {
+              setSubmissions(previous => previous.map(task => task.key === key ? { ...task, upload: next } : task))
+              setActiveUpload({ current: index + 1, total: files.length,
+                percent: Math.round(next.uploaded / Math.max(1, next.total) * 100) })
+            })
+            videoId = video.videoId
+            uploadRef.current.set(fileKey(target), videoId)
+          }
+          const created = await apiVlm<{ runId: string }>('/runs/from-rules', {
+            method: 'POST', headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ videoId, pois: vlmPois(eventsConfig), cues: vlmCues(eventsConfig), ...selection, ...parameters }),
+          })
+          setSubmissions(previous => previous.map(task => task.key === key
+            ? { ...task, runId: created.runId, upload: undefined } : task))
+          setQueueVersion(value => value + 1)
+        } catch (e) {
+          setSubmissions(previous => previous.map(task => task.key === key
+            ? { ...task, upload: undefined, error: String(e) } : task))
+        }
       }
-      const created = await apiVlm<{ runId: string }>('/runs/from-rules', {
-        method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ videoId, pois: vlmPois(eventsConfig), cues: vlmCues(eventsConfig), ...selection, ...parameters }),
-      })
-      setRunId(created.runId)
-      setRun(null)
-      setResults([])
-      setOffset(0)
-      setTotal(0)
-      setExpanded('')
-      const list = await apiVlm<VlmRun[]>('/runs')
-      setRuns(list)
     } catch (e) {
       setError(String(e))
-      onBusyChange(false)
-    } finally { setSubmitting(false); setUploadProgress(null) }
-  }
-
-  async function cancel() {
-    if (!runId) return
-    try { await apiVlm(`/runs/${runId}/cancel`, { method: 'POST' }); await refresh() }
-    catch (e) { setError(String(e)) }
+    } finally {
+      submittingRef.current = false
+      setSubmitting(false)
+      setActiveUpload(null)
+      setQueueVersion(value => value + 1)
+      onBusyChange(queueBusyRef.current)
+    }
   }
 
   const pois = vlmPois(eventsConfig)
   const cues = vlmCues(eventsConfig).map(c => ({ id: c.id, label: c.label, kind: 'cue' }))
+  const uploadLabel = activeUpload && submitting
+    ? t('vlm.batchUploading', { current: activeUpload.current, total: activeUpload.total, percent: activeUpload.percent })
+    : t('vlm.uploading')
   return <section className={styles.panel} aria-label={t('vlm.title')}>
     <strong>{t('vlm.title')}</strong>
     <div className={styles.hint}>{t('vlm.hint')}</div>
     <EventRulesEditor ref={rulesRef} pois={pois} cues={cues} onStateChange={setRulesState} />
     <CueSettings />
     <AnalysisParameters disabled={isBusy} onChange={setParameters} />
-    <div className={styles.toolbar}>
-      <button disabled={!file || !parameters || !pois.length || basicRunning || isBusy || rulesState.busy || !rulesState.ready} onClick={() => void start()}>{submitting ? (uploadProgress ? `${t('vlm.uploading')} ${Math.round(uploadProgress.uploaded / Math.max(1, uploadProgress.total) * 100)}%` : t('vlm.uploading')) : rulesState.dirty ? t('eventRules.saveAndStart') : t('vlm.start')}</button>
-      <span className={styles.hint}>{pois.length} POI · {file?.name || t('vlm.chooseVideo')}</span>
+    <div className={styles.files}>
+      <div className={styles.toolbar}>
+        <strong>{t('vlm.batchTitle')}</strong>
+        <label className={styles.fileBtn}>
+          <input type="file" multiple disabled={submitting} accept="video/*,.mp4,.mov,.mkv,.avi,.m4v,.webm,.ts,.ps,.dav"
+            onChange={e => { addFiles(e.target.files); e.target.value = '' }} />
+          {t('vlm.batchAdd')}
+        </label>
+        <span className={styles.hint}>{t('vlm.batchCount', { count: files.length })}</span>
+      </div>
+      <div className={styles.hint}>{t('vlm.batchHint')}</div>
+      <ul className={styles.fileList}>
+        {files.map(item => <li key={fileKey(item)} className={styles.fileRow}>
+          <span className={styles.fileName} title={item.name}>{item.name}</span>
+          {file && fileKey(item) === fileKey(file)
+            ? <span className={styles.hint}>{t('vlm.taskCurrent')}</span>
+            : <button type="button" disabled={submitting} onClick={() => removeFile(item)}>{t('vlm.batchRemove')}</button>}
+        </li>)}
+      </ul>
     </div>
     <div className={styles.toolbar}>
+      <button disabled={!files.length || !parameters || !pois.length || basicRunning || submitting || rulesState.busy || !rulesState.ready} onClick={() => void start()}>
+        {submitting ? uploadLabel : files.length > 1 ? t('vlm.batchStart', { count: files.length })
+          : rulesState.dirty ? t('eventRules.saveAndStart') : t('vlm.start')}
+      </button>
+      <span className={styles.hint}>{pois.length} POI · {files.length ? files[0].name : t('vlm.chooseVideo')}</span>
+    </div>
+    <TaskQueue submissions={submissions} version={queueVersion} selectedRunId={runId}
+      onBusyChange={handleBusy} onRunUpdate={handleRunUpdate} />
+    <div className={styles.toolbar}>
       <label>{t('vlm.history')} <select value={runId} onChange={e => {
-        setRunId(e.target.value); setSnapshot(null); setOffset(0); setResults([]); setRun(null); setTotal(0); setExpanded(''); setError('')
-      }}><option value="">—</option>{runs.map(r => <option key={r.runId} value={r.runId}>{r.fileName || r.runId} · {t(`vlm.${r.state}`)} · {r.runId.slice(-6)}</option>)}</select></label>
-      {run && activeVlm(run.state) && <button onClick={() => void cancel()} disabled={run.state === 'cancelling'}>{t('vlm.cancel')}</button>}
+        setRunId(e.target.value); setSnapshot(null); setRun(null); setError('')
+      }}><option value="">—</option>{runs.map(item => <option key={item.runId} value={item.runId}>{item.fileName || item.runId} · {t(`vlm.${item.state}`)} · {item.runId.slice(-6)}</option>)}</select></label>
     </div>
     {run && <div role="status">
       {t(`vlm.${run.state}`)} · {run.progress?.sampledFrames ?? 0} {t('vlm.frames')} · {run.progress?.candidateCount ?? 0} {t('vlm.candidates')} · {run.progress?.completedRequests ?? 0}/{run.progress?.totalRequests ?? 0} {t('vlm.judgments')}
-      {run.state === 'tracking' && <progress max={1} value={run.progress?.trackingFraction ?? 0} />}
-      {run.state === 'understanding' && (run.progress?.segmentCount ?? 0) > 1 && <span className={styles.hint}>{' '}{t('vlm.segment')} {(run.progress?.currentSegment ?? 0) + 1}/{run.progress?.segmentCount}</span>}
+      {run.summary?.resultCount != null && <span> · {t('vlm.eventCount')} {run.summary.resultCount}</span>}
+      {(run.progress?.segmentCount ?? 0) > 1 && <span className={styles.hint}>{' '}{t('vlm.segment')} {(run.progress?.currentSegment ?? 0) + 1}/{run.progress?.segmentCount}</span>}
       {run.summary?.reason === 'no_candidates' && <p>{t('vlm.noCandidates')}</p>}
       {run.summary?.dryRun && <p>{t('vlm.dryRun')}</p>}
     </div>}
     {(error || run?.error) && <div role="alert" className={styles.error}>{error || run?.error}</div>}
     {run && snapshot && <RuleSnapshotView snapshot={snapshot} />}
     {run?.parameters && <ParameterSnapshot value={run.parameters} />}
-    {run && source && <video key={run.videoId} className={styles.video} ref={videoRef} src={source} controls preload="metadata" />}
-    {results.map(result => <article className={styles.result} key={result.resultId}>
-      <div className={styles.toolbar}>
-        <button onClick={() => {
-          setExpanded(expanded === result.resultId ? '' : result.resultId)
-          if (videoRef.current) videoRef.current.currentTime = Math.max(0, result.triggerSec - 2)
-        }}>#{result.trackId} · {result.triggerSec.toFixed(2)}s · {result.poiId}</button>
-        <strong className={styles[result.decision]}>{result.inferenceStatus === 'failed' ? t('vlm.failed') : result.inferenceStatus === 'dry_run' ? t('vlm.dryRun') : t(`vlm.${result.decision}`)}</strong>
-      </div>
-      {result.deterministicDecision && <div className={styles.hint}>
-        {t('vlm.deterministic')}: {t(`vlm.${result.deterministicDecision}`)}
-        {result.cueEvidence ? ` · ${t('vlm.cueState')}=${result.cueEvidence.state}${result.cueEvidence.onsetSec != null ? ` @${result.cueEvidence.onsetSec.toFixed(2)}s` : ''}` : ''}
-      </div>}
-      <div>{result.description}</div>
-      <ConditionList conditions={result.conditions} criteria={result.eventCriteria} onSeek={seek} />
-      <ModelExplanation videoDescription={result.videoDescription} reason={result.reason} />
-      {result.modelDecision && result.modelDecision !== result.decision && <div className={styles.hint}>
-        {t('vlm.originalDecision')}: {t(`vlm.${result.modelDecision}`)}
-      </div>}
-      {result.modelDecisionConfidence != null && <div className={styles.hint}>{t('vlm.confidence')}: {(result.modelDecisionConfidence * 100).toFixed(0)}%</div>}
-      <div className={styles.hint}><QualityWarnings warnings={result.qualityWarnings} /></div>
-      {result.downgradeReasons?.length ? <div className={styles.hint}>{t('vlm.review')}: {result.downgradeReasons.join(', ')}</div> : null}
-      {result.error && <div className={styles.error}>{result.error}</div>}
-      {expanded === result.resultId && (result.segments || []).map((segment, index) => <div key={index}>
-        <p>{segment.window.startSec.toFixed(2)}–{segment.window.endSec.toFixed(2)}s</p>
-        <ModelExplanation videoDescription={segment.videoDescription} reason={segment.reason} />
-        <ConditionList conditions={segment.conditions} criteria={result.eventCriteria} onSeek={seek} />
-        {segment.previewPath && <EvidenceImage runId={runId} path={segment.previewPath} />}
-      </div>)}
-    </article>)}
-    {total > 20 && <div className={styles.toolbar}>
-      <button disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - 20))}>←</button>
-      {offset + 1}–{Math.min(total, offset + 20)} / {total}
-      <button disabled={offset + 20 >= total} onClick={() => setOffset(offset + 20)}>→</button>
-    </div>}
+    <div className={styles.toolbar}>
+      <button disabled={!runId} onClick={() => openRecord(runId)}>{t('review.open')}</button>
+      <span className={styles.hint}>{run?.summary?.resultCount != null ? t('library.resultCount', { count: run.summary.resultCount }) : t('review.hint')}</span>
+    </div>
   </section>
 }

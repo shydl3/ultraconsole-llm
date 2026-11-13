@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { apiGetState, apiListModels, apiSelectEngine, apiSelectModel, apiUpdateParams } from '../../api/client'
+import { apiGetState, apiListModels, apiSelectEngine, apiSelectModel, apiUpdateParams, apiVlm } from '../../api/client'
 import { useT } from '../../i18n'
 import { useConsoleStore } from '../../store/useConsoleStore'
+import { useVlmModelStore } from '../../store/useVlmModelStore'
 import type { Params } from '../../api/contracts'
+import { parameterStorageKey, persistModelPath, savedParameters, type ParameterContract } from '../../utils/vlmParameters'
 import { Card } from '../primitives/Card'
 import { NeoButton } from '../primitives/NeoButton'
 import styles from './ControlPanel.module.css'
@@ -17,6 +19,33 @@ export function ControlPanel() {
   const pushLog = useConsoleStore((s) => s.pushLog)
 
   const [busy, setBusy] = useState(false)
+  const vlmModelPath = useVlmModelStore((s) => s.modelPath)
+  const setVlmModelPath = useVlmModelStore((s) => s.setModelPath)
+  const [vlmContract, setVlmContract] = useState<ParameterContract | null>(null)
+  const [vlmError, setVlmError] = useState('')
+  const [vlmRetry, setVlmRetry] = useState(0)
+
+  useEffect(() => {
+    // The semantic model lives here so model choice is visible before opening the VLM panel.
+    const controller = new AbortController()
+    void apiVlm<ParameterContract>('/parameters', { signal: controller.signal }).then(contract => {
+      if (controller.signal.aborted) return
+      setVlmContract(contract)
+      setVlmError('')
+      let saved: string | null = null
+      try { saved = localStorage.getItem(parameterStorageKey) } catch { /* Storage can be disabled. */ }
+      if (!useVlmModelStore.getState().modelPath) setVlmModelPath(savedParameters(saved, contract).modelPath)
+    }).catch(e => { if (!controller.signal.aborted) setVlmError(String(e)) })
+    return () => controller.abort()
+  }, [setVlmModelPath, vlmRetry])
+
+  const vlmModel = vlmContract?.models.find(model => model.path === vlmModelPath)
+
+  function onSelectVlmModel(path: string) {
+    setVlmModelPath(path)
+    persistModelPath(path)
+    pushLog({ ts: Date.now() / 1000, level: 'INFO', event: 'vlm.model.selected', msg: path, fields: {} })
+  }
 
   useEffect(() => {
     let active = true
@@ -89,8 +118,9 @@ export function ControlPanel() {
 
   return (
     <div className={styles.stack}>
-      <Card title="Model Hub" right={busy ? t('control.switching') : undefined}>
-        <div className={styles.row}>
+      <Card title={t('cards.modelHub')} right={vlmError ? t('vlmParameters.modelUnavailable') : busy ? t('control.switching') : undefined}>
+        <div className={styles.field}>
+          <div className={styles.labelRow}><span className={styles.label}>{t('control.detectModel')}</span></div>
           <select
             className={styles.select}
             value={currentModelId || ''}
@@ -107,9 +137,43 @@ export function ControlPanel() {
             ))}
           </select>
         </div>
+
+        <div className={styles.field}>
+          <div className={styles.labelRow}>
+            <span className={styles.label}>{t('vlmParameters.modelPath')}</span>
+            {vlmContract && vlmModelPath !== vlmContract.defaults.modelPath && (
+              <button type="button" className={styles.hint} onClick={() => onSelectVlmModel(vlmContract.defaults.modelPath)}>
+                {t('vlmParameters.useDefaultModel')}
+              </button>
+            )}
+          </div>
+          <select
+            className={styles.select}
+            value={vlmModelPath}
+            disabled={!vlmContract}
+            onChange={(e) => onSelectVlmModel(e.target.value)}
+          >
+            {vlmModelPath && !vlmContract?.models.some(model => model.path === vlmModelPath) && (
+              <option value={vlmModelPath} disabled>{vlmModelPath} — {t('vlmParameters.modelUnavailable')}</option>
+            )}
+            {(vlmContract?.models ?? []).map((model) => (
+              <option key={model.path} value={model.path} disabled={!model.available}>
+                {model.name}
+                {model.path === vlmContract?.defaults.modelPath ? ` (${t('vlmParameters.defaultModel')})` : ''}
+                {!model.available ? ` — ${t('vlmParameters.modelUnavailable')}` : ''}
+              </option>
+            ))}
+          </select>
+          {vlmError
+            ? <div className={styles.hint} role="alert">{vlmError}{' '}
+              <button type="button" onClick={() => { setVlmError(''); setVlmRetry(value => value + 1) }}>{t('vlmParameters.retry')}</button>
+            </div>
+            : <div className={styles.hint}>{vlmContract ? t('vlmParameters.modelHint') : t('vlmParameters.loading')}</div>}
+          {vlmModel?.available === false && <div className={styles.hint} role="alert">{vlmModel.error || t('vlmParameters.modelUnavailableHint')}</div>}
+        </div>
       </Card>
 
-      <Card title="Engine" right={engine.warming ? t('control.warming') : engine.device.toUpperCase()}>
+      <Card title={t('cards.engine')} right={engine.warming ? t('control.warming') : engine.device.toUpperCase()}>
         <div className={styles.row}>
           <NeoButton onClick={() => onToggleEngine('cpu')} disabled={engine.warming || engine.device === 'cpu'}>
             CPU
@@ -120,51 +184,7 @@ export function ControlPanel() {
         </div>
       </Card>
 
-      <Card title="NMS Controls">
-        <div className={styles.field}>
-          <div className={styles.labelRow}>
-            <div className={styles.label}>Conf Threshold</div>
-            <div className={styles.value}>{params.conf.toFixed(2)}</div>
-          </div>
-          <input
-            className={styles.slider}
-            type="range"
-            min={0}
-            max={1}
-            step={0.01}
-            value={params.conf}
-            onChange={(e) => {
-              const conf = Number(e.target.value)
-              const next = { ...params, conf }
-              setParams({ conf })
-              flushParams(next)
-            }}
-          />
-        </div>
-
-        <div className={styles.field}>
-          <div className={styles.labelRow}>
-            <div className={styles.label}>IoU Threshold</div>
-            <div className={styles.value}>{params.iou.toFixed(2)}</div>
-          </div>
-          <input
-            className={styles.slider}
-            type="range"
-            min={0}
-            max={1}
-            step={0.01}
-            value={params.iou}
-            onChange={(e) => {
-              const iou = Number(e.target.value)
-              const next = { ...params, iou }
-              setParams({ iou })
-              flushParams(next)
-            }}
-          />
-        </div>
-      </Card>
-
-      <Card title="Class Filter">
+      <Card title={t('cards.classFilter')}>
         {classOptions.length === 0 ? (
           <div className={styles.hint}>{t('control.classHint')}</div>
         ) : (
@@ -190,7 +210,7 @@ export function ControlPanel() {
         )}
       </Card>
 
-      <Card title="Tracking & Events" right={params.track ? 'on' : 'off'}>
+      <Card title={t('cards.tracking')} right={params.track ? 'on' : 'off'}>
         <label className={styles.toggleRow}>
           <input
             type="checkbox"

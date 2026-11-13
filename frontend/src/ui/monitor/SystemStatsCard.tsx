@@ -65,7 +65,7 @@ export function SystemStatsCard() {
   const stats = useConsoleStore((s) => s.systemStats)
 
   return (
-    <Card title="System Stats" right={stats ? new Date(stats.ts * 1000).toLocaleTimeString() : '--'}>
+    <Card title={t('cards.stats')} right={stats ? new Date(stats.ts * 1000).toLocaleTimeString() : '--'}>
       {!stats ? (
         <div className={styles.hint}>{t('stats.collecting')}</div>
       ) : (

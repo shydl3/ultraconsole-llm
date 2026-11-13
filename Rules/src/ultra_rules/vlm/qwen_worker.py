@@ -4,7 +4,7 @@ import time
 from pathlib import Path
 
 from .contracts import RunRequest
-from .decision import evaluate, retreat_candidate_ids
+from .decision import candidate_groups, evaluate, load_cue_timelines, retreat_candidate_ids
 from .prompting import PROMPT_VERSION, prompt
 from .results import aggregate_result, apply_answer, complete_json_answer, parse_answer
 from .sampling import build_sample, windows
@@ -112,7 +112,7 @@ def _build_deterministic_evidence(run_dir, config, request, candidate, event, re
     return segments
 
 
-def _process_candidate(run_dir, config, request, candidate, events, candidates, state):
+def _process_candidate(run_dir, config, request, candidate, events, state, grouped, timelines):
     """Run deterministic + VLM verdicts for one candidate across its events.
 
     Mutates state (model/done/failed/counts) and appends global-time results to
@@ -129,7 +129,7 @@ def _process_candidate(run_dir, config, request, candidate, events, candidates, 
                   "confidenceType": "model_self_reported_uncalibrated", "modelDecisionConfidence": None,
                   "inferenceStatus": "succeeded", "decision": "uncertain", "segments": []}
         try:
-            deterministic = evaluate(candidate, event, request, run_dir, candidates)
+            deterministic = evaluate(candidate, event, request, run_dir, grouped=grouped, timelines=timelines)
             if deterministic is not None and not deterministic["reviewRequired"] and not request.dryRun:
                 output["segments"] = _build_deterministic_evidence(run_dir, config, request, candidate, event, result_id, deterministic)
                 output.update(deterministicDecision=deterministic["decision"],
@@ -237,6 +237,8 @@ def understand(run_dir: Path):
         return
     state = {"model": None, "done": len(completed), "failed": 0,
              "counts": {"match": 0, "no_match": 0, "uncertain": 0}, "completed": completed, "currentSegment": 0}
+    grouped = candidate_groups(candidates)
+    timelines = load_cue_timelines(run_dir) if any(event.cueIds for event in events.values()) else {}
     for segment in segments:
         bucket = [c for c in entry_candidates if segment["startSec"] <= c["triggerSec"] < segment["endSec"]]
         if not bucket:
@@ -244,6 +246,6 @@ def understand(run_dir: Path):
         state["currentSegment"] = segment["index"]
         progress(run_dir, currentSegment=segment["index"], segmentCount=len(segments))
         for candidate in bucket:
-            _process_candidate(run_dir, config, request, candidate, events, candidates, state)
+            _process_candidate(run_dir, config, request, candidate, events, state, grouped, timelines)
     write_json(run_dir / "summary.json", {"resultCount": state["done"], "failedRequests": state["failed"],
                                           "decisions": state["counts"], "dryRun": request.dryRun})

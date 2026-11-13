@@ -20,7 +20,6 @@ export function VideoTab() {
   const setOSD = useConsoleStore((s) => s.setOSD)
   const setLastPred = useConsoleStore((s) => s.setLastPred)
   const lastPred = useConsoleStore((s) => s.lastPred)
-  const alertActive = useConsoleStore((s) => s.alert.active)
   const roi = useConsoleStore((s) => s.roi)
   const setRoi = useConsoleStore((s) => s.setRoi)
   const pushLog = useConsoleStore((s) => s.pushLog)
@@ -343,7 +342,7 @@ export function VideoTab() {
         }}>{t('common.stop')}</NeoButton>
       </div>}
       <div
-        className={[styles.stage, alertActive ? styles.alertOn : '', dragOver ? styles.dropOver : ''].join(' ')}
+        className={[styles.stage, dragOver ? styles.dropOver : ''].join(' ')}
         onDragOver={(e) => {
           e.preventDefault()
           if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'

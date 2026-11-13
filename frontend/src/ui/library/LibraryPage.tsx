@@ -4,7 +4,7 @@ import { useT } from '../../i18n'
 import { useLocaleStore } from '../../i18n/store'
 import { useUiStore } from '../../store/useUiStore'
 import { formatBytes, formatDuration, libraryKey, libraryPath, type LibraryItem, type LibraryKind, type LibraryList } from '../../utils/library'
-import { LibraryDetail } from './LibraryDetail'
+import { openReviewWindow } from '../../utils/reviewWindow'
 import styles from './LibraryPage.module.css'
 
 function Dialog({ title, children, onClose, busy }: { title: string; children: ReactNode; onClose: () => void; busy: boolean }) {
@@ -25,7 +25,6 @@ export function LibraryPage() {
   const [offset, setOffset] = useState(0)
   const [list, setList] = useState<LibraryList | null>(null)
   const [selected, setSelected] = useState<LibraryItem[]>([])
-  const [opened, setOpened] = useState<LibraryItem | null>(null)
   const [rename, setRename] = useState<LibraryItem | null>(null)
   const [name, setName] = useState('')
   const [deleting, setDeleting] = useState<LibraryItem[] | null>(null)
@@ -58,6 +57,10 @@ export function LibraryPage() {
   function select(item: LibraryItem, checked: boolean) {
     setSelected(previous => checked ? [...previous.filter(p => libraryKey(p) !== libraryKey(item)), item] : previous.filter(p => libraryKey(p) !== libraryKey(item)))
   }
+  function openItem(item: LibraryItem) {
+    // Detail pages open in their own window, never as an in-page view or tab.
+    if (!openReviewWindow({ kind: item.kind, id: item.id })) setError(t('review.popupBlocked'))
+  }
   function openRename(item: LibraryItem) { setRename(item); setName(item.name); setModalError('') }
   function openDelete(items: LibraryItem[]) { setDeleting(items); setModalError('') }
   async function saveName() {
@@ -66,7 +69,6 @@ export function LibraryPage() {
     try {
       const changed = await apiLibrary<LibraryItem>(libraryPath(rename), { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: name.trim() }) })
       setSelected(previous => previous.map(p => libraryKey(p) === libraryKey(changed) ? changed : p))
-      if (opened && libraryKey(opened) === libraryKey(changed)) setOpened(changed)
       setRename(null); setNotice(t('library.renamed')); refresh()
     } catch (e) { setModalError(String(e)) } finally { setBusy(false) }
   }
@@ -77,7 +79,6 @@ export function LibraryPage() {
     const removed = new Set(deleting.filter((_, index) => outcomes[index].status === 'fulfilled').map(libraryKey))
     const failed = deleting.filter((_, index) => outcomes[index].status === 'rejected')
     setSelected(previous => previous.filter(item => !removed.has(libraryKey(item))))
-    if (opened && removed.has(libraryKey(opened))) setOpened(null)
     setNotice(t('library.deleted', { count: removed.size }))
     if (failed.length) {
       setDeleting(failed)
@@ -111,7 +112,7 @@ export function LibraryPage() {
     </div>
     {error && <p className={styles.error} role="alert">{error}</p>}
     {notice && <p className={styles.notice} role="status">{notice}</p>}
-    <div className={opened ? styles.split : styles.content}>
+    <div>
       <section className={styles.records} aria-label={t('library.records')} aria-busy={loading}>
         <div className={styles.tableWrap}>
           <table>
@@ -119,15 +120,15 @@ export function LibraryPage() {
               <th><input type="checkbox" aria-label={t('library.selectPage')} disabled={!selectable.length || loading} checked={selectable.length > 0 && selectable.every(item => checked.has(libraryKey(item)))} onChange={e => setSelected(e.target.checked ? selectable : [])} /></th>
               <th>{t('library.name')}</th><th>{t('library.state')}</th><th>{t('library.date')}</th><th>{t('library.duration')}</th><th>{t('library.size')}</th><th>{t('library.actions')}</th>
             </tr></thead>
-            <tbody>{list?.items.map(item => <tr key={libraryKey(item)} className={opened && libraryKey(opened) === libraryKey(item) ? styles.activeRow : ''}>
+            <tbody>{list?.items.map(item => <tr key={libraryKey(item)}>
               <td><input type="checkbox" aria-label={`${t('library.select')} ${item.name}`} disabled={item.active || loading} checked={checked.has(libraryKey(item))} onChange={e => select(item, e.target.checked)} /></td>
-              <td><button className={styles.name} onClick={() => setOpened(item)}>{item.name}</button><span className={styles.subline}>{t(`library.${item.kind}`)} · {item.id.slice(-12)}</span></td>
+              <td><button className={styles.name} onClick={() => openItem(item)}>{item.name}</button><span className={styles.subline}>{t(`library.${item.kind}`)} · {item.id.slice(-12)}</span></td>
               <td><span className={item.active ? styles.running : styles.badge}>{['ready', 'running', 'unknown'].includes(item.state) ? t(`library.${item.state}`) : t(`vlm.${item.state}`)}</span></td>
               <td className={styles.date}>{new Date(item.createdAt * 1000).toLocaleString()}</td>
               <td className={styles.date}>{formatDuration(item.durationSec, t)}{item.active && item.durationSec != null ? ` · ${t('library.inProgress')}` : ''}</td>
               <td>{item.kind === 'video' ? formatBytes(item.sizeBytes) : item.resultCount == null ? '—' : t('library.resultCount', { count: item.resultCount })}</td>
               <td><div className={styles.rowActions}>
-                <button onClick={() => setOpened(item)}>{t('library.open')}</button>
+                <button onClick={() => openItem(item)}>{t('library.open')}</button>
                 <button onClick={() => openRename(item)}>{t('library.rename')}</button>
                 <button className={styles.danger} disabled={item.active || busy} title={item.active ? t('library.activeProtected') : t('library.delete')} onClick={() => openDelete([item])}>{t('library.delete')}</button>
               </div></td>
@@ -142,7 +143,6 @@ export function LibraryPage() {
           <button disabled={!list || offset + pageSize >= list.total || loading} onClick={() => { setOffset(offset + pageSize); setSelected([]); setLoading(true) }}>→</button>
         </div>
       </section>
-      {opened && <LibraryDetail key={libraryKey(opened)} item={opened} revision={revision} onClose={() => setOpened(null)} />}
     </div>
     <footer className={styles.footer}>{t('library.storage')} <code>{list?.videoDirectory || 'data/video-previews/'}</code><p>{t('library.retainHint')}</p></footer>
     {rename && <Dialog title={t('library.rename')} busy={busy} onClose={() => setRename(null)}>

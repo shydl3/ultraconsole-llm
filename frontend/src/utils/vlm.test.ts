@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { activeVlm, CUE_DEFAULTS, parseVlmEvents, vlmCues, vlmPois, type VlmCondition, type VlmResult } from './vlm'
+import { activeVlm, CUE_DEFAULTS, mergeVlmTasks, parseVlmEvents, vlmCues, vlmPois, vlmProgress, type VlmCondition, type VlmResult } from './vlm'
 
 describe('VLM request construction', () => {
   it('preserves independent descriptions and explicit JSON criteria', () => {
@@ -41,5 +41,34 @@ describe('VLM request construction', () => {
     expect(result.conditions?.[1].evidenceTimeSec == null).toBe(true)
     // A segment replays its own per-condition verdicts.
     expect(result.segments?.[0].conditions).toHaveLength(2)
+  })
+})
+
+describe('VLM task progress', () => {
+  it('maps pipeline phases onto one percentage', () => {
+    expect(vlmProgress({ state: 'queued' }).percent).toBe(0)
+    expect(vlmProgress({ state: 'segment' }).percent).toBe(4)
+    expect(vlmProgress({ state: 'tracking', progress: { trackingFraction: .5 } }).percent).toBe(24)
+    expect(vlmProgress({ state: 'understanding', progress: { completedRequests: 5, totalRequests: 10 } }).percent).toBe(75)
+    expect(vlmProgress({ state: 'understanding' }).percent).toBe(50)
+    expect(vlmProgress({ state: 'completed' }).percent).toBe(100)
+    expect(vlmProgress({ state: 'partial' }).percent).toBe(100)
+  })
+  it('keeps the last known position for cancelled and failed tasks', () => {
+    const progress = { trackingFraction: 1, completedRequests: 3, totalRequests: 4 }
+    expect(vlmProgress({ state: 'cancelled', progress }).percent).toBe(87)
+    expect(vlmProgress({ state: 'failed' }).percent).toBe(50)
+  })
+  it('merges local submissions with server runs without dropping finished tasks', () => {
+    const uploadTask = { key: 'upload-1', name: 'a.mp4', upload: { uploaded: 1, total: 2 } }
+    const runTask = { key: 'run-1', name: 'b.mp4', runId: 'run-1' }
+    const active = { runId: 'run-1', videoId: 'v2', fileName: 'b.mp4', state: 'tracking' }
+    const terminal = { runId: 'run-1', videoId: 'v2', fileName: 'b.mp4', state: 'completed' }
+    const merged = mergeVlmTasks([uploadTask, runTask], [active, { runId: 'other', videoId: 'v3', fileName: 'c.mp4', state: 'queued' }])
+    expect(merged.map(task => task.key)).toEqual(['upload-1', 'run-1', 'other'])
+    expect(merged[1].run?.state).toBe('tracking')
+    // A run missing from the poll keeps the last known state instead of vanishing.
+    const kept = mergeVlmTasks([{ ...runTask, run: terminal }], [])
+    expect(kept[0].run?.state).toBe('completed')
   })
 })

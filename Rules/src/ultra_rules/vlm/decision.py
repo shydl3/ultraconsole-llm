@@ -40,6 +40,18 @@ def retreat_candidate_ids(candidates: list[dict]) -> set[str]:
     return skipped
 
 
+def candidate_groups(candidates: list[dict]) -> dict[tuple, list[dict]]:
+    """Index candidates by track segment and POI so retreat lookups stay O(1).
+
+    Long recordings produce tens of thousands of candidates; scanning the whole
+    list per verdict would make cue-bound analysis quadratic.
+    """
+    groups: dict[tuple, list[dict]] = defaultdict(list)
+    for c in candidates:
+        groups[(c.get("trackSegmentId"), c.get("poiId"))].append(c)
+    return groups
+
+
 def load_cue_timelines(run_dir: Path) -> dict:
     path = run_dir / "cues.json"
     if not path.exists():
@@ -65,9 +77,9 @@ def red_state(timelines: dict, cue_ids: list[str], entry_t: float, pre: float, p
     return "on", best[0]
 
 
-def _retreated(candidate: dict, candidates: list[dict], start: float, end: float) -> bool:
+def _retreated(candidate: dict, grouped: dict[tuple, list[dict]], start: float, end: float) -> bool:
     seg, poi = candidate["trackSegmentId"], candidate["poiId"]
-    for other in candidates:
+    for other in grouped.get((seg, poi), []):
         if other["candidateId"] == candidate["candidateId"]:
             continue
         if other["trackSegmentId"] != seg or other["poiId"] != poi:
@@ -100,10 +112,15 @@ def _tracked_through(run_dir: Path, candidate: dict, start: float, end: float, m
     return all(b - a <= max_gap for a, b in zip(times, times[1:], strict=False))
 
 
-def evaluate(candidate: dict, event: EventDefinition, request: RunRequest, run_dir: Path, candidates: list[dict]):
+def evaluate(candidate: dict, event: EventDefinition, request: RunRequest, run_dir: Path,
+             candidates: list[dict] | None = None, *, grouped: dict[tuple, list[dict]] | None = None,
+             timelines: dict | None = None):
     if not event.cueIds:
         return None
-    timelines = load_cue_timelines(run_dir)
+    # The understanding phase passes preloaded timelines/grouping so a multi-hour
+    # run does not re-read cues.json or rescan candidates for every verdict.
+    timelines = load_cue_timelines(run_dir) if timelines is None else timelines
+    grouped = candidate_groups(candidates or []) if grouped is None else grouped
     entry_t = candidate["triggerSec"]
     state, onset = red_state(timelines, event.cueIds, entry_t, event.preSeconds, event.postSeconds)
     cue_evidence = {"cueIds": event.cueIds, "state": state, "onsetSec": onset}
@@ -114,7 +131,7 @@ def evaluate(candidate: dict, event: EventDefinition, request: RunRequest, run_d
         return {"decision": "uncertain", "reason": "红灯检测不确定，转 VLM 复核",
                 "cueEvidence": cue_evidence, "reviewRequired": True}
     window_end = onset + RETREAT_SECONDS
-    if _retreated(candidate, candidates, entry_t, window_end):
+    if _retreated(candidate, grouped, entry_t, window_end):
         return {"decision": "no_match", "reason": "红灯亮起后 5 秒内目标退回原区域",
                 "cueEvidence": cue_evidence, "reviewRequired": False}
     if not _tracked_through(run_dir, candidate, entry_t, window_end, request.maxGapSeconds):

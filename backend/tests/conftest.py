@@ -13,6 +13,14 @@ def _disable_startup_autostart(monkeypatch):
     monkeypatch.setattr(main, "settings", replace(main.settings, autostart=False))
 
 
+@pytest.fixture(autouse=True)
+def _isolate_vlm_data_root(tmp_path, monkeypatch):
+    """The queue scheduler runs during the app lifespan; keep it off real run data."""
+    from app import vlm_api
+
+    monkeypatch.setattr(vlm_api, "DATA_ROOT", tmp_path / "vlm-data")
+
+
 @pytest.fixture
 def local_vlm_models(tmp_path, monkeypatch):
     # Metadata fixtures only: tests must not load actual model weights or CUDA.

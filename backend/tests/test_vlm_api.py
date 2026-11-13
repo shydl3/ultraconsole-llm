@@ -4,6 +4,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 from dataclasses import replace
 from pathlib import Path
 
@@ -60,6 +61,51 @@ def test_upload_start_results_auth_and_range(client, tmp_path, monkeypatch, loca
     assert TestClient(main.app).get("/api/vlm/runs").status_code == 401
     assert client.get(f"/api/vlm/runs/{run}/artifacts/..%2frequest.json").status_code in (400, 404)
     assert client.post(f"/api/vlm/runs/{run}/cancel").json()["state"] == "completed"
+
+
+def test_results_facets_markers_and_filters(client):
+    folder = api.DATA_ROOT / "runs/facets"
+    folder.mkdir(parents=True)
+    write_json(folder / "status.json", {"runId": "facets", "state": "completed"})
+    rows = [
+        {"resultId": "r1", "trackId": 3, "triggerSec": 12.0, "decision": "match", "inferenceStatus": "succeeded",
+         "eventDefinitionId": "enter", "description": "行人进入安检区", "reason": "目标清晰"},
+        {"resultId": "r2", "trackId": 3, "triggerSec": 4.0, "decision": "no_match", "inferenceStatus": "succeeded",
+         "eventDefinitionId": "enter", "description": "书包跨线", "reason": "没有人物"},
+        {"resultId": "r3", "trackId": 8, "triggerSec": 20.0, "decision": "uncertain", "inferenceStatus": "failed",
+         "eventDefinitionId": "retreat", "description": "目标退回", "reason": "推理失败",
+         "downgradeReasons": ["evidence_time_outside_window"]},
+        # Older rows may omit decision fields entirely; they must not break facets.
+        {"resultId": "r4", "trackId": 9, "triggerSec": 1.0, "inferenceStatus": "succeeded", "description": "历史结果"},
+    ]
+    (folder / "results.jsonl").write_text("".join(json.dumps(row) + "\n" for row in rows))
+
+    page = client.get("/api/vlm/runs/facets/results?limit=2").json()
+    assert page["total"] == 4
+    assert [row["resultId"] for row in page["items"]] == ["r4", "r2"]  # chronological, paginated
+    assert page["facets"]["decision"] == {"match": 1, "no_match": 1, "uncertain": 1}
+    assert page["facets"]["inferenceStatus"] == {"succeeded": 3, "failed": 1}
+    assert page["facets"]["eventDefinitionId"] == {"enter": 2, "retreat": 1}
+    assert page["facets"]["trackId"] == {"3": 2, "8": 1, "9": 1}
+    assert page["facets"]["flagged"] == 1
+    assert page["facets"]["total"] == 4
+    assert len(page["markers"]) == 4  # markers cover every hit, not just the page
+    assert page["markers"][0]["resultId"] == "r4"
+    assert client.get("/api/vlm/runs/facets/results?decision=match").json()["total"] == 1
+    # The "all" chip reports what it would show after clearing the verdict filter.
+    assert client.get("/api/vlm/runs/facets/results?decision=match").json()["facets"]["total"] == 4
+    assert client.get("/api/vlm/runs/facets/results?inferenceStatus=failed").json()["total"] == 1
+    assert client.get("/api/vlm/runs/facets/results?flagged=true").json()["total"] == 1
+    assert client.get("/api/vlm/runs/facets/results?q=书包").json()["total"] == 1
+    assert client.get("/api/vlm/runs/facets/results?q=3").json()["total"] == 2  # matches trackId
+    filtered = client.get("/api/vlm/runs/facets/results?decision=no_match").json()
+    # A rule facet ignores its own dimension so other rules stay selectable.
+    assert filtered["facets"]["eventDefinitionId"] == {"enter": 1}
+    paged = client.get("/api/vlm/runs/facets/results?eventId=enter&offset=1&limit=1").json()
+    assert paged["total"] == 2
+    assert [row["resultId"] for row in paged["items"]] == ["r1"]
+    tracked = client.get("/api/vlm/runs/facets/results?sort=track&order=desc&limit=2").json()
+    assert [row["resultId"] for row in tracked["items"]] == ["r4", "r3"]
 
 
 def test_description_output_budget_is_exposed_and_validated(client):
@@ -184,6 +230,18 @@ def test_chunked_upload_rejects_overlong_video(client, tmp_path, monkeypatch):
     assert done.status_code == 400, done.text
 
 
+def test_video_duration_limit_is_configurable(client, tmp_path, monkeypatch):
+    blob = clip_bytes(tmp_path)
+    monkeypatch.setattr(api, "MAX_DURATION_SEC", 0.001)
+    _, rejected = chunked_upload(client, blob, chunk_size=max(1, len(blob) // 2 + 1))
+    assert rejected.status_code == 400
+    assert "VLM_MAX_DURATION_SEC" in rejected.text
+    # 0 disables the check, so multi-hour recordings are accepted as uploaded.
+    monkeypatch.setattr(api, "MAX_DURATION_SEC", 0)
+    _, accepted = chunked_upload(client, blob, chunk_size=max(1, len(blob) // 2 + 1))
+    assert accepted.status_code == 200, accepted.text
+
+
 def test_crashed_worker_is_interrupted(client):
     folder = api.DATA_ROOT / "runs" / "orphan"
     folder.mkdir(parents=True)
@@ -207,6 +265,69 @@ def test_cancel_live_worker_marks_request(client):
         if child.poll() is None:
             child.kill()
             child.wait()
+
+
+def test_submitted_runs_queue_and_pump_starts_the_next(client, tmp_path, monkeypatch, local_vlm_models):
+    vid = upload(client, tmp_path)
+    launched = []
+
+    def fake_launch(folder, python):
+        launched.append(folder.name)
+        if len(launched) == 1:
+            state = jobs.read_json(folder / "status.json")
+            jobs.write_json(folder / "status.json", {**state, "state": "tracking"})
+
+    monkeypatch.setattr(jobs, "launch", fake_launch)
+    payload = {"videoId": vid, "pois": [{"id": "gate", "kind": "line", "points": [[.2, .2], [.8, .8]]}],
+               "events": [{"id": "e", "description": "test"}], "modelPath": str(local_vlm_models[1])}
+    first = client.post("/api/vlm/runs", json=payload)
+    second = client.post("/api/vlm/runs", json=payload)
+    assert first.status_code == second.status_code == 200, second.text
+    first_id, second_id = first.json()["runId"], second.json()["runId"]
+    # The second submission is accepted and waits instead of failing with 409.
+    assert launched == [first_id]
+    assert jobs.read_json(api.DATA_ROOT / "runs" / second_id / "status.json")["state"] == "queued"
+    state = jobs.read_json(api.DATA_ROOT / "runs" / first_id / "status.json")
+    jobs.write_json(api.DATA_ROOT / "runs" / first_id / "status.json", {**state, "state": "completed"})
+    api._pump()
+    assert launched == [first_id, second_id]
+
+
+def test_queued_run_waits_without_interrupt_and_lists_as_active(client):
+    folder = api.DATA_ROOT / "runs/waiting"
+    folder.mkdir(parents=True)
+    write_json(folder / "status.json", {"runId": "waiting", "state": "queued", "startedAt": 1})
+    old = time.time() - 600
+    os.utime(folder / "status.json", (old, old))
+    assert client.get("/api/vlm/runs/waiting").json()["state"] == "queued"
+    assert [run["runId"] for run in client.get("/api/vlm/runs?active=true").json()] == ["waiting"]
+
+
+def test_state_filter_returns_completed_records_before_limit(client):
+    for index in range(3):
+        folder = api.DATA_ROOT / f"runs/queued-{index}"
+        folder.mkdir(parents=True)
+        write_json(folder / "status.json", {"runId": f"queued-{index}", "state": "queued", "startedAt": index})
+    done = api.DATA_ROOT / "runs/done"
+    done.mkdir(parents=True)
+    write_json(done / "status.json", {"runId": "done", "state": "completed", "startedAt": 10})
+    old = time.time() - 60
+    os.utime(done / "status.json", (old, old))
+    # Newer unfinished runs must not push the completed record out of the limit.
+    assert [run["runId"] for run in client.get("/api/vlm/runs?limit=1&state=completed").json()] == ["done"]
+    assert client.get("/api/vlm/runs?state=completed").json()[0]["runId"] == "done"
+
+
+def test_cancelled_queued_run_is_terminal_and_never_launched(client, monkeypatch):
+    folder = api.DATA_ROOT / "runs/waiting-cancel"
+    folder.mkdir(parents=True)
+    write_json(folder / "status.json", {"runId": "waiting-cancel", "state": "queued", "startedAt": 1})
+    launched = []
+    monkeypatch.setattr(jobs, "launch", lambda *args: launched.append(args))
+    assert client.post("/api/vlm/runs/waiting-cancel/cancel").json()["state"] == "cancelled"
+    api._pump()
+    assert launched == []
+    assert client.get("/api/vlm/runs?active=true").json() == []
 
 
 def test_backend_imports_without_rules_pythonpath():

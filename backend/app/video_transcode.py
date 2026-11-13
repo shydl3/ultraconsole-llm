@@ -6,7 +6,8 @@ from fractions import Fraction
 from pathlib import Path
 
 
-def transcode_gpu(source: Path, target: Path, progress) -> None:
+def transcode_gpu(source: Path, target: Path, progress, *, cq: int = 20, gop_seconds: float = 1.0,
+                  maxrate_kbps: int = 0) -> None:
     # PyAV bundles FFmpeg; no separate ffmpeg executable is required.
     import av
     with av.open(str(source)) as incoming:
@@ -36,9 +37,12 @@ def transcode_gpu(source: Path, target: Path, progress) -> None:
             stream.time_base = time_base
             stream.codec_context.time_base = time_base
             stream.options = {
-                "gpu": "0", "preset": "p4", "rc": "vbr", "cq": "20", "b": "0",
-                "g": str(max(1, round(float(rate)))), "bf": "0",
+                "gpu": "0", "preset": "p4", "rc": "vbr", "cq": str(cq), "b": "0",
+                "g": str(max(1, round(float(rate) * gop_seconds))), "bf": "0",
             }
+            if maxrate_kbps > 0:
+                # Bounded VBR keeps review copies small without destroying detail.
+                stream.options.update({"maxrate": f"{maxrate_kbps}k", "bufsize": f"{maxrate_kbps * 2}k"})
             start = None
             last_pts = -1
             count = 0
@@ -70,8 +74,18 @@ def transcode_gpu(source: Path, target: Path, progress) -> None:
 
 
 if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Hardware-only H.264 conversion worker")
+    parser.add_argument("source")
+    parser.add_argument("target")
+    parser.add_argument("--cq", type=int, default=20, help="constant-quality level (lower is better)")
+    parser.add_argument("--gop", type=float, default=1.0, help="keyframe interval in seconds")
+    parser.add_argument("--maxrate", type=int, default=0, help="bitrate cap in kbps (0 = uncapped)")
+    args = parser.parse_args()
     try:
-        transcode_gpu(Path(sys.argv[1]), Path(sys.argv[2]), lambda value: print(value, flush=True))
+        transcode_gpu(Path(args.source), Path(args.target), lambda value: print(value, flush=True),
+                      cq=args.cq, gop_seconds=args.gop, maxrate_kbps=args.maxrate)
     except Exception as exc:
         print(str(exc), file=sys.stderr, flush=True)
         raise SystemExit(1) from None

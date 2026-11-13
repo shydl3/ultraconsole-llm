@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { apiVlm } from '../../api/client'
 import { useT } from '../../i18n'
+import { useVlmModelStore } from '../../store/useVlmModelStore'
 import { numericParameters, parameterDraft, parameterRange, parameterStorageKey, parseParameters, savedParameters, type NumericParameter, type ParameterContract, type ParameterDraft, type VlmParameters } from '../../utils/vlmParameters'
 import styles from './VlmPanel.module.css'
 
@@ -10,6 +11,8 @@ export function AnalysisParameters({ disabled, onChange }: { disabled: boolean; 
   const [draft, setDraft] = useState<ParameterDraft | null>(null)
   const [error, setError] = useState('')
   const [retry, setRetry] = useState(0)
+  const sharedModelPath = useVlmModelStore((s) => s.modelPath)
+  const emittedPath = useRef('')
 
   useEffect(() => {
     const controller = new AbortController()
@@ -17,7 +20,12 @@ export function AnalysisParameters({ disabled, onChange }: { disabled: boolean; 
       if (controller.signal.aborted) return
       let saved: string | null = null
       try { saved = localStorage.getItem(parameterStorageKey) } catch { /* Storage can be disabled. */ }
-      const initial = savedParameters(saved, value)
+      const restored = savedParameters(saved, value)
+      // The Model Hub owns the semantic model choice; fall back to browser preferences on first load.
+      const shared = useVlmModelStore.getState()
+      const initial = { ...restored, modelPath: shared.modelPath || restored.modelPath }
+      if (!shared.modelPath) shared.setModelPath(initial.modelPath)
+      emittedPath.current = initial.modelPath
       setContract(value)
       setDraft(parameterDraft(initial))
       onChange(parseParameters(parameterDraft(initial), value).value)
@@ -25,17 +33,29 @@ export function AnalysisParameters({ disabled, onChange }: { disabled: boolean; 
     return () => controller.abort()
   }, [onChange, retry])
 
+  // Re-emit when the model is switched from the left Model Hub.
+  useEffect(() => {
+    if (!contract || !draft || !sharedModelPath || emittedPath.current === sharedModelPath) return
+    emittedPath.current = sharedModelPath
+    onChange(parseParameters({ ...draft, modelPath: sharedModelPath }, contract).value)
+  }, [contract, draft, onChange, sharedModelPath])
+
   function update(next: ParameterDraft) {
     if (!contract) return
-    setDraft(next)
-    const { value } = parseParameters(next, contract)
+    // The Model Hub is authoritative for the model choice; keep it out of panel edits.
+    const shared = useVlmModelStore.getState().modelPath
+    const merged = shared && shared !== next.modelPath ? { ...next, modelPath: shared } : next
+    setDraft(merged)
+    emittedPath.current = merged.modelPath
+    const { value } = parseParameters(merged, contract)
     onChange(value)
     if (value) {
       try { localStorage.setItem(parameterStorageKey, JSON.stringify({ ...value, dryRun: false })) } catch { /* Optional persistence. */ }
     }
   }
 
-  const parsed = draft && contract ? parseParameters(draft, contract) : null
+  const effectiveDraft = draft && sharedModelPath ? { ...draft, modelPath: sharedModelPath } : draft
+  const parsed = effectiveDraft && contract ? parseParameters(effectiveDraft, contract) : null
   function input(key: NumericParameter) {
     if (!contract || !draft) return null
     const field = contract.fields[key]
@@ -58,18 +78,12 @@ export function AnalysisParameters({ disabled, onChange }: { disabled: boolean; 
     {error ? <div role="alert" className={styles.error}>{error} <button type="button" onClick={() => { setError(''); setRetry(value => value + 1) }}>{t('vlmParameters.retry')}</button></div> : !contract && <div role="status">{t('vlmParameters.loading')}</div>}
     {contract && draft && <fieldset className={styles.parameterControls} disabled={disabled}>
       <legend className={styles.hint}>{t('vlmParameters.common')}</legend>
-      <label className={styles.parameterField}><span>{t('vlmParameters.modelPath')}</span>
-        <select value={draft.modelPath} aria-invalid={parsed?.invalidModel || undefined} aria-describedby="vlm-param-modelPath-hint"
-          onChange={e => update({ ...draft, modelPath: e.target.value })}>
-          {!contract.models.some(model => model.path === draft.modelPath) && <option value={draft.modelPath} disabled>{draft.modelPath} — {t('vlmParameters.modelUnavailable')}</option>}
-          {contract.models.map(model => <option key={model.path} value={model.path} disabled={!model.available}>
-            {model.name}{model.path === contract.defaults.modelPath ? ` (${t('vlmParameters.defaultModel')})` : ''}{!model.available ? ` — ${t('vlmParameters.modelUnavailable')}` : ''}
-          </option>)}
-        </select>
-        <span className={styles.modelPath}>{draft.modelPath}</span>
-        <span className={styles.hint} id="vlm-param-modelPath-hint">{t('vlmParameters.modelHint')}</span>
-        {parsed?.invalidModel && <span role="alert" className={styles.error}>{contract.models.find(model => model.path === draft.modelPath)?.error || t('vlmParameters.modelUnavailableHint')}</span>}
-      </label>
+      <div className={styles.parameterField}>
+        <span>{t('vlmParameters.modelPath')}</span>
+        <span className={styles.modelPath}>{effectiveDraft?.modelPath || '—'}</span>
+        <span className={styles.hint}>{t('vlmParameters.modelInHub')}</span>
+        {parsed?.invalidModel && <span role="alert" className={styles.error}>{contract.models.find(model => model.path === effectiveDraft?.modelPath)?.error || t('vlmParameters.modelUnavailableHint')}</span>}
+      </div>
       <div className={styles.parameterGrid}>{(['sampleFps', 'maxFrames', 'maxPixels', 'poseFps', 'maxNewTokens'] as const).map(input)}
         <label className={styles.parameterField}><span>{t('vlmParameters.poseDevice')}</span>
           <select value={draft.poseDevice} onChange={e => update({ ...draft, poseDevice: e.target.value as VlmParameters['poseDevice'] })}>

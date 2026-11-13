@@ -52,3 +52,12 @@ export function savedParameters(raw: string | null, contract: ParameterContract)
 export function parameterRange(field: ParameterField) {
   return `${field.exclusiveMinimum === undefined ? '[' : '('}${field.minimum ?? field.exclusiveMinimum}, ${field.maximum ?? field.exclusiveMaximum}${field.exclusiveMaximum === undefined ? ']' : ')'}`
 }
+
+/** Persist only the semantic model choice so the Model Hub and the analysis panel agree. */
+export function persistModelPath(modelPath: string) {
+  try {
+    const saved: unknown = JSON.parse(localStorage.getItem(parameterStorageKey) || '{}')
+    const value = saved && typeof saved === 'object' ? saved as Record<string, unknown> : {}
+    localStorage.setItem(parameterStorageKey, JSON.stringify({ ...value, modelPath, dryRun: false }))
+  } catch { /* Optional persistence. */ }
+}

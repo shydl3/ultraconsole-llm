@@ -75,16 +75,19 @@ def _hysteresis(samples, cue: CueDefinition):
 def detect_timeline(source: Path, meta: dict, cue: CueDefinition):
     mask, bbox = _roi_mask(cue, meta["width"], meta["height"])
     x0, y0, x1, y1 = bbox
-    samples: list[tuple[float, bool]] = []
-    for _index, t, _source, frame in sampled(source, meta, cue.sampleFps):
-        bgr = frame.to_ndarray(format="bgr24")
-        crop = bgr[y0:y1, x0:x1]
-        if crop.size == 0:
-            samples.append((t, False))
-            continue
-        ratio = _red_ratio(crop, mask, cue)
-        samples.append((t, ratio >= cue.minOnRatio))
-    return {"intervals": _hysteresis(samples, cue)}
+
+    def signal():
+        # Stream samples into the hysteresis fold: a 24h pass at 10 fps would keep
+        # ~hundreds of thousands of tuples alive if buffered as a list.
+        for _index, t, _source, frame in sampled(source, meta, cue.sampleFps):
+            bgr = frame.to_ndarray(format="bgr24")
+            crop = bgr[y0:y1, x0:x1]
+            if crop.size == 0:
+                yield t, False
+                continue
+            yield t, _red_ratio(crop, mask, cue) >= cue.minOnRatio
+
+    return {"intervals": _hysteresis(signal(), cue)}
 
 
 def detect_all(source: Path, meta: dict, cues: list[CueDefinition]):

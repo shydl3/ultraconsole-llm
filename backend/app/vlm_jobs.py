@@ -26,24 +26,47 @@ from ultra_rules.vlm.storage import iter_jsonl as iter_jsonl  # noqa: E402
 from ultra_rules.vlm.storage import read_json as read_json  # noqa: E402
 from ultra_rules.vlm.storage import write_json as write_json  # noqa: E402
 
-launch_lock = threading.Lock()
+# Re-entrant: the queue scheduler pumps while run creation may already hold it.
+launch_lock = threading.RLock()
+
+
+def owner_alive(run_dir: Path) -> bool:
+    """True while the worker process recorded in owner.json is still running."""
+    path = run_dir / "owner.json"
+    if not path.exists():
+        return False
+    try:
+        owner = read_json(path)
+        return process_identity(owner["pid"]) == owner["identity"]
+    except (OSError, ValueError, KeyError, TypeError):
+        return False
 
 
 def status(run_dir: Path):
     result = read_json(run_dir / "status.json")
-    owner = read_json(run_dir / "owner.json") if (run_dir / "owner.json").exists() else None
-    if result["state"] not in TERMINAL and owner and process_identity(owner["pid"]) != owner["identity"]:
-        if (run_dir / "cancel.requested").exists():
+    owner_path = run_dir / "owner.json"
+    owner = read_json(owner_path) if owner_path.exists() else None
+    alive = owner_alive(run_dir)
+    cancelled = (run_dir / "cancel.requested").exists()
+    if result["state"] not in TERMINAL:
+        if owner and not alive:
+            if cancelled:
+                result.update(state="cancelled", finishedAt=time.time(), updatedAt=time.time())
+            else:
+                result.update(state="interrupted", error="Worker exited without a terminal status",
+                              updatedAt=time.time())
+            write_json(run_dir / "status.json", result)
+        elif not owner and cancelled:
+            # Cancelled while still queued: no worker will ever pick it up.
             result.update(state="cancelled", finishedAt=time.time(), updatedAt=time.time())
-        else:
-            result.update(state="interrupted", error="Worker exited without a terminal status", updatedAt=time.time())
-        write_json(run_dir / "status.json", result)
-    if result["state"] not in TERMINAL and not owner and time.time() - (run_dir / "status.json").stat().st_mtime > 30:
-        result.update(state="interrupted", error="Worker never started")
-        write_json(run_dir / "status.json", result)
+            write_json(run_dir / "status.json", result)
+        elif (not owner and result["state"] != "queued"
+              and time.time() - (run_dir / "status.json").stat().st_mtime > 30):
+            result.update(state="interrupted", error="Worker never started")
+            write_json(run_dir / "status.json", result)
     if (run_dir / "progress.json").exists():
         result["progress"] = read_json(run_dir / "progress.json")
-    if (run_dir / "cancel.requested").exists() and result["state"] not in TERMINAL:
+    if cancelled and result["state"] not in TERMINAL:
         result["state"] = "cancelling"
     return result
 

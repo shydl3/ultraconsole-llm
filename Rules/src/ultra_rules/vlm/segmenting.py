@@ -53,6 +53,24 @@ def plan_segments(duration: float, keyframe_times: list[float],
     return [(cuts[i], cuts[i + 1]) for i in range(len(cuts) - 1)]
 
 
+def fixed_segments(duration: float, target_seconds: float = DEFAULT_SEGMENT_SECONDS) -> list[tuple[float, float]]:
+    """Even time buckets for logical (understanding) grouping.
+
+    Logical buckets only decide which candidates are processed together, so they
+    do not need keyframe alignment; skipping the full-file keyframe scan keeps the
+    start of a 12-24h run immediate instead of demuxing tens of GB first.
+    """
+    if duration <= 0:
+        raise ValueError("Video has no duration")
+    segments: list[tuple[float, float]] = []
+    start = 0.0
+    while start < duration:
+        end = min(float(duration), start + target_seconds)
+        segments.append((start, end))
+        start = end
+    return segments
+
+
 def write_segment(source: Path, target: Path, start_sec: float, end_sec: float) -> None:
     """Remux packets in [start_sec, end_sec) into a standalone faststart MP4."""
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -141,15 +159,13 @@ def run_segment_phase(run_dir: Path) -> None:
     files are produced separately by the browser preview path.
     """
     config = read_json(run_dir / "request.json")
-    source = Path(config["sourcePath"])
     meta = config["video"]
     existing = read_manifest(run_dir)
     if existing.get("segments"):
         progress(run_dir, stage="segment", segmentCount=len(existing["segments"]), segmentCacheHit=True)
         return
     duration = float(meta["durationSec"])
-    keyframes = probe_keyframes(source)
-    plan = plan_segments(duration, keyframes, DEFAULT_SEGMENT_SECONDS)
+    plan = fixed_segments(duration, DEFAULT_SEGMENT_SECONDS)
     segments = [{"index": i, "startSec": round(s, 6), "endSec": round(e, 6),
                  "durationSec": round(e - s, 6)} for i, (s, e) in enumerate(plan)]
     write_manifest(run_dir, segments, meta["sha256"], mode="logical")

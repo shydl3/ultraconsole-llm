@@ -12,38 +12,49 @@ FRONTEND_PORT=5100
 usage() {
   cat <<'EOF'
 用法：
-  ./start.sh [前端端口]
+  ./start.sh [--prod] [前端端口]
   ./start.sh --port <前端端口>
 
 示例：
-  ./start.sh          # 前端端口 5100（默认）
-  ./start.sh 3000     # 前端端口 3000
-  ./start.sh -p 8080  # 前端端口 8080
+  ./start.sh              # 开发模式：前端端口 5100（默认，Vite 开发服务器）
+  ./start.sh 3000         # 开发模式：前端端口 3000
+  ./start.sh -p 8080      # 开发模式：前端端口 8080
+  ./start.sh --prod       # 生产模式：构建前端，由后端 8001 直接托管（无 Vite 代理）
 EOF
 }
 
-case "${1:-}" in
-  -h|--help)
-    usage
-    exit 0
-    ;;
-  -p|--port)
-    if [[ $# -ne 2 ]]; then
-      usage >&2
-      exit 2
-    fi
-    FRONTEND_PORT="$2"
-    ;;
-  "")
-    ;;
-  *)
-    if [[ $# -ne 1 ]]; then
-      usage >&2
-      exit 2
-    fi
-    FRONTEND_PORT="$1"
-    ;;
-esac
+PROD=0
+positional=()
+while (( $# > 0 )); do
+  case "$1" in
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    --prod)
+      PROD=1
+      shift
+      ;;
+    -p|--port)
+      if [[ $# -lt 2 ]]; then
+        usage >&2
+        exit 2
+      fi
+      FRONTEND_PORT="$2"
+      shift 2
+      ;;
+    *)
+      positional+=("$1")
+      shift
+      ;;
+  esac
+done
+if (( ${#positional[@]} > 1 )); then
+  usage >&2
+  exit 2
+elif (( ${#positional[@]} == 1 )); then
+  FRONTEND_PORT="${positional[0]}"
+fi
 
 if [[ ! "$FRONTEND_PORT" =~ ^[0-9]+$ ]] || (( FRONTEND_PORT < 1 || FRONTEND_PORT > 65535 )); then
   echo "错误：前端端口必须是 1-65535 之间的整数。" >&2
@@ -139,6 +150,11 @@ if [[ ! -d "$FRONTEND_DIR/node_modules" ]]; then
   exit 1
 fi
 
+if (( PROD == 1 )); then
+  echo "生产模式：构建前端产物……"
+  ( cd "$FRONTEND_DIR" && npm run build ) || { echo "错误：前端构建失败。" >&2; exit 1; }
+fi
+
 backend_started=0
 frontend_started=0
 cleanup_failed_start() {
@@ -195,6 +211,12 @@ else
   echo "后端已启动（PID $backend_pid，端口 $BACKEND_PORT）。"
 fi
 
+if (( PROD == 1 )) && ! curl --silent --fail --max-time 2 "http://127.0.0.1:$BACKEND_PORT/" >/dev/null 2>&1; then
+  echo "警告：当前后端未托管前端产物（可能是在没有 dist 时启动的）。" >&2
+  echo "请执行 ./stop.sh 后重新运行 ./start.sh --prod。" >&2
+fi
+
+if (( PROD == 0 )); then
 if pid_is_running "$FRONTEND_PID_FILE" "$FRONTEND_DIR"; then
   if [[ -f "$RUNTIME_DIR/frontend.port" ]]; then
     read -r running_port < "$RUNTIME_DIR/frontend.port"
@@ -242,9 +264,15 @@ else
   fi
   echo "前端已启动（PID $frontend_pid，端口 $FRONTEND_PORT）。"
 fi
+fi
 
 trap - EXIT
 echo
-echo "访问地址：http://localhost:$FRONTEND_PORT"
+if (( PROD == 1 )); then
+  echo "生产模式：前端由后端托管（页面与媒体同源，无 Vite 代理）。"
+  echo "访问地址：http://localhost:$BACKEND_PORT"
+else
+  echo "访问地址：http://localhost:$FRONTEND_PORT"
+fi
 echo "日志目录：$RUNTIME_DIR"
 echo "停止服务：./stop.sh"

@@ -68,7 +68,6 @@ export type ModelInfo = { id: string; filename: string; taskType: 'detect' | 'se
 export type ConsoleBootstrap = { engine: { device: DeviceType; warming: boolean }; model: ModelInfo | null }
 export type LogLevel = 'INFO' | 'WARN' | 'ERROR'
 export type LogEntry = { ts: number; level: LogLevel; event: string; msg: string; fields: Record<string, unknown> }
-export type AlertConfig = { enabled: boolean; targetClass?: string; minFrames: number; sound: boolean }
 export type RoiPoint = { x: number; y: number }
 export type RoiMode = 'rect' | 'poly'
 export type RoiState = { enabled: boolean; polygon: RoiPoint[]; closed: boolean; applyFilter: boolean; mode: RoiMode }

@@ -4,42 +4,6 @@
   gap: var(--s-12);
 }
 
-.alertRow {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--s-12);
-}
-
-.toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--fg-1);
-  font-size: 12px;
-}
-
-.select {
-  background: rgba(255, 255, 255, 0.04);
-  color: var(--fg-0);
-  border: 1px solid var(--line-0);
-  border-radius: 10px;
-  padding: 6px 8px;
-}
-
-.num {
-  width: 64px;
-  background: rgba(255, 255, 255, 0.04);
-  color: var(--fg-0);
-  border: 1px solid var(--line-0);
-  border-radius: 10px;
-  padding: 6px 8px;
-}
-
-.spacer {
-  flex: 1;
-}
-
 .logBox {
   height: 28vh;
   min-height: 160px;

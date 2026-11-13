@@ -33,7 +33,7 @@ def _candidate(cid, trigger_sec):
 
 
 def _install_stub(monkeypatch, processed):
-    def stub(run_dir, config, request, candidate, events, candidates, state):
+    def stub(run_dir, config, request, candidate, events, state, grouped, timelines):
         for event_id in candidate["eventDefinitionIds"]:
             result_id = f"{candidate['candidateId']}-{event_id}"
             if result_id in state["completed"]:

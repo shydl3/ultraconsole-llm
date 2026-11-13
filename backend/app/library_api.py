@@ -17,6 +17,9 @@ from . import video_api, vlm_api, vlm_jobs
 
 router = APIRouter(prefix="/api/library", tags=["library"])
 Kind = Literal["vlm", "video"]
+# Only a fully completed analysis becomes a saved record. Queued, running,
+# cancelled, failed and partially completed runs stay in the task queue.
+VISIBLE_VLM_STATES = {"completed"}
 
 
 class Rename(BaseModel):
@@ -116,6 +119,8 @@ def list_items(kind: Literal["all", "vlm", "video"] = "all", q: str = Query(defa
                 item = _entry(category, path)
             except (HTTPException, OSError, ValueError, KeyError):
                 continue
+            if category == "vlm" and item["state"] not in VISIBLE_VLM_STATES:
+                continue
             counts[category] += 1
             if kind not in ("all", category):
                 continue
@@ -131,6 +136,8 @@ def list_items(kind: Literal["all", "vlm", "video"] = "all", q: str = Query(defa
 def detail(kind: Kind, identifier: str, offset: int = Query(default=0, ge=0), limit: int = Query(default=20, ge=1, le=100)):
     path = _path(kind, identifier)
     item = _entry(kind, path)
+    if kind == "vlm" and item["state"] not in VISIBLE_VLM_STATES:
+        raise HTTPException(404, "Item not found")
     if kind == "video":
         return {"item": item, "metadata": _read(_metadata(kind, path)), "results": [], "total": 0,
                 "videos": [{"id": identifier, "name": item["name"], "url": f"/api/library/video/{identifier}/source"}]}
@@ -150,7 +157,8 @@ def saved_video(identifier: str, download: bool = False):
     name = re.sub(r'[/\\\x00-\x1f]', "_", name)
     if not name.lower().endswith(".mp4"):
         name += ".mp4"
-    return FileResponse(path, media_type="video/mp4", filename=name if download else None)
+    return FileResponse(path, media_type="video/mp4", filename=name if download else None,
+                        headers={"Cache-Control": "private, max-age=3600"})
 
 
 @router.patch("/{kind}/{identifier}")
